@@ -30,6 +30,12 @@ import { episodeFromFileName, reorderedAudioIndexes } from '../../electron/postp
 import { shouldDeferAttempt, nextAttemptAfterFailure } from '../../electron/attempts'
 import { normalizePosterUrl, posterBackfillPatch } from '../../electron/posters'
 import {
+  jellyfinAuthHeaders,
+  jellyfinBase,
+  jellyfinLibraryPath,
+  jellyfinPosterPath,
+} from '../../electron/jellyfin-auth'
+import {
   normalizeLanguageProfile,
   addWatchlistItem,
   updateWatchlistItem,
@@ -70,6 +76,10 @@ export interface World {
   minQuality?: VideoQuality
   qualityOk?: boolean
   fileEpisode?: { season: number; episode: number } | null
+  jfKey?: string
+  jfHeaders?: Record<string, string>
+  jfBase?: string
+  jfPosterPath?: string
   audioStreams?: Array<{ index: number; language?: string }>
   audioOrder?: string
   torrentState?: string
@@ -878,6 +888,79 @@ export const stepDefs: Array<{ pattern: RegExp; fn: StepFn }> = [
       const real = (getSettings() as any)[clave]
       if (String(real) !== String(guardado.valor)) {
         throw new Error(`no se pudo restaurar «${clave}» (quedó ${real})`)
+      }
+    },
+  },
+
+  // ── B23 · autenticación contra Jellyfin (12 retiró X-Emby-Token y ?api_key=) ─
+  {
+    pattern: /^preparo la autenticación contra Jellyfin con la clave "(.*)"$/,
+    fn: ({ world }, key) => {
+      world.jfKey = key
+      world.jfHeaders = jellyfinAuthHeaders(key)
+    },
+  },
+  {
+    pattern: /^la cabecera de autorización pide el esquema "(.*)" con esa clave$/,
+    fn: ({ world }, esquema) => {
+      const esperado = `${esquema} Token="${world.jfKey}"`
+      if (world.jfHeaders?.Authorization !== esperado) {
+        throw new Error(`Authorization = ${JSON.stringify(world.jfHeaders?.Authorization)} · esperado ${JSON.stringify(esperado)}`)
+      }
+    },
+  },
+  {
+    pattern: /^la cabecera antigua también va, para servidores sin actualizar$/,
+    fn: ({ world }) => {
+      if (world.jfHeaders?.['X-Emby-Token'] !== world.jfKey) {
+        throw new Error('no se envió la cabecera antigua X-Emby-Token')
+      }
+    },
+  },
+  {
+    pattern: /^no se envía ninguna cabecera de autenticación$/,
+    fn: ({ world }) => {
+      const n = Object.keys(world.jfHeaders || {}).length
+      if (n !== 0) throw new Error(`sin clave se enviaron ${n} cabeceras`)
+    },
+  },
+  {
+    pattern: /^la ruta del listado de la biblioteca no lleva la clave$/,
+    fn: () => {
+      const ruta = jellyfinLibraryPath()
+      if (/api_key=|X-Emby/i.test(ruta)) throw new Error(`la ruta lleva la clave: ${ruta}`)
+    },
+  },
+  {
+    pattern: /^la ruta del póster no lleva la clave$/,
+    fn: ({ world }) => {
+      world.jfPosterPath = jellyfinPosterPath('abc123', 'tag1')
+      if (/api_key=/.test(world.jfPosterPath)) throw new Error(`la ruta lleva la clave: ${world.jfPosterPath}`)
+    },
+  },
+  {
+    pattern: /^normalizo la URL de Jellyfin "(.*)"$/,
+    fn: ({ world }, url) => {
+      world.jfBase = jellyfinBase(url)
+    },
+  },
+  {
+    pattern: /^la URL base queda "(.*)"$/,
+    fn: ({ world }, esperado) => {
+      if (world.jfBase !== esperado) throw new Error(`la URL quedó ${JSON.stringify(world.jfBase)}`)
+    },
+  },
+  {
+    pattern: /^pido el póster del elemento "(.*)" con etiqueta "(.*)"$/,
+    fn: ({ world }, id, tag) => {
+      world.jfPosterPath = jellyfinPosterPath(id, tag)
+    },
+  },
+  {
+    pattern: /^la ruta del póster es "(.*)"$/,
+    fn: ({ world }, esperado) => {
+      if (world.jfPosterPath !== esperado) {
+        throw new Error(`la ruta es ${JSON.stringify(world.jfPosterPath)} · esperada ${JSON.stringify(esperado)}`)
       }
     },
   },

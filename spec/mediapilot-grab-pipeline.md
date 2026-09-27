@@ -362,9 +362,28 @@ Reglas:
 Criterio de éxito: `spec/features/update-check.feature` (13 escenarios) y ningún
 release con ventana de ausencia.
 
+## B23 · Autenticación contra Jellyfin (12 dejó de aceptar lo antiguo)
+
+Jellyfin 12 (2026-09-08) **retiró las formas antiguas de identificarse**: la
+cabecera `X-Emby-Token` y la clave en la URL (`?api_key=…`) devuelven 401. Con el
+servidor de casa ya en 12.1.0, el listado de la biblioteca y el refresco tras una
+descarga fallaban sin más señal que un 401 en el log.
+
+- Regla 1: la clave va **en la cabecera** `Authorization: MediaBrowser Token="…"`,
+  que es la forma que sigue valiendo en 12 **y también en 10.11**.
+- Regla 2: se envía además `X-Emby-Token` para no romper servidores sin
+  actualizar; cada servidor usa la que entiende.
+- Regla 3: **ninguna ruta lleva la clave en la URL**, ni el listado ni los pósters.
+- Regla 4: sin clave configurada no se envía ninguna cabecera de autenticación.
+- Regla 5: la etiqueta de versión del póster (`tag`) se conserva: sin ella Jellyfin
+  devuelve la imagen cacheada anterior.
+
+Criterio de éxito: contra un Jellyfin 12 real, el listado devuelve los elementos y
+el refresco responde 204; contra un 10.11 sin actualizar, lo mismo.
+
 ## 9. Success criteria (verificables)
 
-1. `npm run spec` en verde (93 escenarios), con las conductas B1–B17 cubiertas.
+1. `npm run spec` en verde, con las conductas B1–B23 cubiertas.
 2. `POST /api/library/heal` sobre la biblioteca real devuelve `changed:false`.
 3. `scripts/audit-tv-layout.py` → 0 problemas; sin episodios duplicados.
 4. Logs reales muestran: `cola: N episodio(s) encolado(s) — 3/3 en curso`,
