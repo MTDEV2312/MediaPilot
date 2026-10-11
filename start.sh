@@ -2,8 +2,7 @@
 # Lanzador de MediaPilot para Linux/macOS: comprueba las dependencias, instala
 # lo que falte (con permiso), prepara la app y la arranca.
 #
-#   ./start.sh            arranca la app (en una máquina sin escritorio, el
-#                         servidor web; con escritorio, Electron)
+#   ./start.sh            comprueba/instala dependencias y arranca el servidor web
 #   ./start.sh --check    solo comprueba las dependencias
 #   ./start.sh --yes      instala lo que falte sin preguntar
 set -uo pipefail
@@ -133,22 +132,9 @@ else
   echo "        dependencias: ya instaladas."
 fi
 
-if [ ! -f dist/index.html ]; then
-  echo "        compilando..."
-  npm run build || { echo "  [!] Falló la compilación."; exit 1; }
-else
-  echo "        compilado. Si actualizaste el código, borra dist/ para recompilar."
-fi
-
-# Sin escritorio (servidor, SSH) la app va en modo servidor web; con escritorio,
-# en Electron. En el servidor web el puerto se cambia con TDP_PORT.
-if [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ]; then
-  echo "        sin escritorio detectado: modo servidor web en http://127.0.0.1:${TDP_PORT:-9650}"
-  echo
-  # npm run server compila la interfaz y el servidor antes de arrancarlo
-  exec npm run server
-fi
-
-echo "        arrancando..."
+# La app arranca como servidor web: abre http://127.0.0.1:9650 en el navegador.
+# Deja esta terminal abierta; para pararlo, Ctrl+C. El puerto se cambia con TDP_PORT.
+echo "        arrancando el servidor web en http://127.0.0.1:${TDP_PORT:-9650}"
 echo
-exec npm start
+# npm run server compila la interfaz y el servidor antes de arrancarlo
+exec npm run server

@@ -681,7 +681,7 @@ async function knownImdbId(torboxId: string): Promise<string> {
  */
 async function fetchSubtitlesForDownload(name: string, type: string, destFolder: string, onlyFiles?: string[], torboxId?: string) {
   try {
-    const py = process.env.TDP_PYTHON || 'python3';
+    const py = process.env.TDP_PYTHON || (process.platform === 'win32' ? 'python' : 'python3');
     const script = path.join(__dirname, '..', 'electron', 'subtitles.py');
     if (!fs.existsSync(script)) {
       console.log('[Subs] subtitles.py no encontrado, saltando descarga de subtítulos');

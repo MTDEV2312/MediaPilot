@@ -49,6 +49,8 @@ pause
 exit /b 1
 :py_ok
 for /f "delims=" %%v in ('%PY% --version 2^>^&1') do echo         instalado: %%v
+echo         instalando cloudscraper ^(busqueda anti-Cloudflare^)...
+%PY% -m pip install --quiet cloudscraper
 
 :: ── 3/4 · FFmpeg (opcional) ──────────────────────────────────────────────────
 echo   [3/4] FFmpeg ^(opcional^)
@@ -85,25 +87,13 @@ if not exist "node_modules" (
   echo         dependencias: ya instaladas.
 )
 
-if not exist "dist\index.html" (
-  echo         compilando...
-  call npm run build
-  if errorlevel 1 (
-    echo.
-    echo   [!] Fallo la compilacion.
-    pause
-    exit /b 1
-  )
-) else (
-  echo         compilado. Si actualizaste el codigo, borra la carpeta dist para recompilar.
-)
-
-echo         arrancando...
+echo         arrancando el servidor web...
+echo         Abre http://127.0.0.1:9650 en tu navegador. Deja esta ventana abierta;
+echo         para parar el servidor pulsa Ctrl+C.
 echo.
-taskkill /f /im electron.exe >nul 2>&1
-rem Con lo ya compilado; la app usa Python para los motores de busqueda, no
-rem hacen falta los ejecutables de PyInstaller.
-call npm start
+rem Cierra una instancia previa del servidor (si la hay) para liberar el puerto.
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 9650 -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }"
+call npm run server
 echo.
 echo   MediaPilot se ha cerrado.
 pause

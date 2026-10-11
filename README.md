@@ -61,7 +61,8 @@ inglés.
 
 ## Requisitos
 
-**Para usar la app instalada (Windows): nada.** El instalador trae todo lo necesario.
+**Para el modo recomendado (clonar + `start.bat` / `start.sh`): solo Git.** Los scripts instalan
+Node.js y Python si faltan. **Para la app instalada (Windows): nada** — el instalador trae todo.
 
 **Para el post-proceso completo** (ordenar las pistas de audio) **y el preflight de duración**, que
 la app toma del sistema:
@@ -98,43 +99,33 @@ pip install --user pyinstaller
 
 ## Instalación
 
-### Opción 1 · Instalador (Windows)
-
-Descarga el instalador desde [Releases](https://github.com/latinokodi/MediaPilot/releases) y
-ejecútalo. No necesita Python, Java ni Docker.
-
-### Opción 2 · Desde el código (Windows, Linux y macOS)
+### Opción 1 · Clonar y ejecutar `start.bat` (Windows) — recomendada
 
 ```bash
 git clone https://github.com/latinokodi/MediaPilot.git
 cd MediaPilot
-npm install
-npm run electron:dev     # modo desarrollo, con recarga en caliente
+start.bat
 ```
 
-**Windows → doble clic en `start.bat`.** Comprueba las dependencias y **instala las que falten**:
+`start.bat` comprueba e **instala solo** lo que falte y arranca el **servidor web** (abre
+`http://127.0.0.1:9650` en tu navegador; ahí configuras carpetas, debrid y TMDB):
 
-1. **Node.js** y **Python** — imprescindibles: si no están, los instala con `winget` (y si no hay
-   `winget`, te da el enlace para hacerlo a mano).
-2. **FFmpeg** — opcional: te pregunta si quieres instalarlo. Sin él la app funciona, pero se queda
-   sin post-proceso de audio.
-3. Las dependencias del proyecto (`npm install`) y la compilación, sólo si aún no están.
-4. Arranca la aplicación.
+1. **Node.js** y **Python** — si no están, los instala con `winget` (y si no hay `winget`, te da
+   el enlace para hacerlo a mano).
+2. **FFmpeg** — opcional: te pregunta. Sin él no hay post-proceso de audio.
+3. Las dependencias del proyecto (`npm install`) y la compilación, la primera vez.
+4. Arranca el servidor web (deja la ventana abierta; para pararlo, Ctrl+C).
 
 ¿Sólo quieres saber si el equipo está listo, sin arrancar nada? `start.bat check`
 
-**Linux y macOS → `./start.sh`.** Hace lo mismo, usando el gestor de paquetes que tengas
-(apt, dnf, pacman, zypper o brew):
+### Linux y macOS
 
 ```bash
 chmod +x start.sh     # sólo la primera vez
-./start.sh --check    # comprueba las dependencias
-./start.sh            # arranca la aplicación
+./start.sh            # comprueba/instala dependencias y arranca
 ```
 
-En una máquina sin escritorio (un servidor por SSH) arranca directamente el **modo servidor web**.
-
-### Modo servidor web (Linux sin escritorio)
+En una máquina sin escritorio (un servidor por SSH) arranca directamente el **modo servidor web**:
 
 ```bash
 npm run server     # compila y sirve la interfaz en http://127.0.0.1:9650
@@ -143,9 +134,12 @@ npm run server     # compila y sirve la interfaz en http://127.0.0.1:9650
 Usa la misma base de datos y los mismos motores que la versión de escritorio. El puerto se
 cambia con `TDP_PORT`.
 
-Los motores de búsqueda en Python se compilan a ejecutables con PyInstaller
-(`pip install pyinstaller cloudscraper` y luego `npm run pyinstaller`); el instalador completo se
-genera con `npm run dist`.
+### Opción 2 · Instalador de Windows (opcional)
+
+Descarga el instalador desde [Releases](https://github.com/latinokodi/MediaPilot/releases) y
+ejecútalo. No necesita Python ni Node: congela los scripts con PyInstaller. Los motores se generan
+con `pip install pyinstaller cloudscraper` y luego `npm run pyinstaller`; el instalador completo,
+con `npm run dist`.
 
 ## Configuración
 
