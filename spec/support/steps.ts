@@ -44,6 +44,7 @@ import {
 } from '../../electron/watchlist'
 import { getSettings, updateSettings } from '../../electron/db'
 import { isBenignUpdateError } from '../../electron/updater'
+import { chooseRdFileIds } from '../../electron/realdebrid'
 
 export interface World {
   titles?: string[]
@@ -98,6 +99,8 @@ export interface World {
   posterItem?: { poster?: string | null; backdrop?: string | null }
   posterDetail?: any
   posterPatch?: { poster?: string; backdrop?: string }
+  rdFiles?: Array<{ id: number; path: string }>
+  rdChosen?: string[]
   updateError?: string
   esperadoLeve?: boolean
   ajusteGuardado?: { clave: string; valor: any }
@@ -961,6 +964,29 @@ export const stepDefs: Array<{ pattern: RegExp; fn: StepFn }> = [
     fn: ({ world }, esperado) => {
       if (world.jfPosterPath !== esperado) {
         throw new Error(`la ruta es ${JSON.stringify(world.jfPosterPath)} · esperada ${JSON.stringify(esperado)}`)
+      }
+    },
+  },
+  // ── B24 · selección de archivos en Real-Debrid ─────────────────────────
+  {
+    pattern: /^los archivos del torrent RD son:$/,
+    fn: ({ world, rows }) => {
+      world.rdFiles = rows.map((r) => ({ id: Number(r[0]), path: r[1] }))
+    },
+  },
+  {
+    pattern: /^selecciono los archivos a bajar en RD$/,
+    fn: ({ world }) => {
+      world.rdChosen = chooseRdFileIds(world.rdFiles ?? [])
+    },
+  },
+  {
+    pattern: /^se seleccionan los ids "([^"]*)"$/,
+    fn: ({ world }, ids) => {
+      const want = ids.split(',').map((s) => s.trim()).filter(Boolean)
+      const got = world.rdChosen ?? []
+      if (JSON.stringify(got) !== JSON.stringify(want)) {
+        throw new Error(`ids seleccionados ${got.join(',')} · esperados ${want.join(',')}`)
       }
     },
   },

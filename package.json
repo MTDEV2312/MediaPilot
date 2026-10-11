@@ -4,7 +4,10 @@
   "description": "MediaPilot — descargador automático de películas y series: TorBox/Real-Debrid, proveedores latino, biblioteca lista para Jellyfin",
   "license": "MIT",
   "author": "latinokodi",
-  "repository": { "type": "git", "url": "git+https://github.com/latinokodi/MediaPilot.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/latinokodi/MediaPilot.git"
+  },
   "homepage": "https://github.com/latinokodi/MediaPilot#readme",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -35,6 +38,7 @@
     "fast-xml-parser": "^5.9.3",
     "gsap": "^3.12.5",
     "lucide-react": "^0.468.0",
+    "node-unrar-js": "^2.0.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "tailwind-merge": "^2.6.0",
