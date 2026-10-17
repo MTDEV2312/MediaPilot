@@ -24,7 +24,11 @@ Feature: Aceptación del nombre del release
       | Demo3 S04E09 1080p WEB h264-ETHEL                   | Demo3 |         | acepta    |
       | Special Ops Demo9 S03E06 1080p PMTP WEB-DL                     | Demo9                  | Special Ops: Demo9 | acepta |
       | Demo7 S02E04 1080p WEB-DL Dual-Lat                      | Demo7              | Demo7 | acepta  |
+      | Demo3 S04E09 Part One 1080p NF WEB-DL DUAL DDP5 1 Atmos H 264-Kitsune | Demo3                  |              | acepta    |
+      | Demo2 S04E09 1080p WEB h264-ETHEL                                | The Demo2                |              | acepta    |
       # otra serie que CONTIENE el título (los que se colaron en producción)
+      | The.Demo3.S01E02.1080p.WEB.h264-CODSWALLOP                        | Demo3                     |              | rechaza   |
+      | The Demo3 S01E04 1080p AMZN WEB-DL DDP2 0 H 264-RAWR              | Demo3                     |              | rechaza   |
       | Standoff.The.Demo.Power.and.Paranoia.S01E01.1080p.WEB.h264-BAE    | Demo                      |              | rechaza   |
       | Demo International S01E10 PROPER 1080p WEB h264-GOSSIP            | Demo                      |              | rechaza   |
       | Demo True S01E04 1080p WEB h264-KOGi                              | Demo                      |              | rechaza   |

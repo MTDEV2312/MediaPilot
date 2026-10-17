@@ -470,6 +470,16 @@ function normTokens(value: string): string[] {
     .filter((t) => t.length > 0 && !NAME_STOPWORDS.has(t))
 }
 
+/** Igual que normTokens pero CONSERVANDO los artículos (para distinguir "The Demo" de "Demo"). */
+function rawTokens(value: string): string[] {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length > 0)
+}
+
 /**
  * Parte "serie" de un nombre de release: lo anterior a SxxEyy, al año o a la
  * primera etiqueta de calidad, sin corchetes de tracker ni paréntesis.
@@ -503,12 +513,16 @@ export function seriesNameMatches(
   candidates: Array<string | undefined | null>,
   altTitles: string[] = [],
 ): boolean {
-  const series = normTokens(releaseSeriesName(releaseName))
+  const titlePart = releaseSeriesName(releaseName)
+  const series = normTokens(titlePart)
   if (series.length === 0) return true
+  // Los artículos se descartan al normalizar, y eso hacía que "The Demo" pasara
+  // como "Demo" (serie homónima): se comparan aparte.
+  const rawSeries = rawTokens(titlePart)
   const cands = [...candidates, ...altTitles]
     .filter((c): c is string => Boolean(c && String(c).trim()))
-    .map((c) => normTokens(String(c)))
-    .filter((t) => t.length > 0)
+    .map((c) => ({ tokens: normTokens(String(c)), raw: rawTokens(String(c)) }))
+    .filter((c) => c.tokens.length > 0)
   if (cands.length === 0) return true
 
   const flat = (tokens: string[]): string => tokens.join('')
@@ -518,9 +532,21 @@ export function seriesNameMatches(
     const offset = tokens.length - series.length
     return series.every((t, i) => tokens[offset + i] === t)
   }
+  /**
+   * El release puede OMITIR el artículo que el título sí lleva ("Demo S01E01"
+   * para "The Demo"), pero no AÑADIR uno que el título no tiene: "The Demo" no
+   * es "Demo". Sin este guardián, normTokens dejaba los dos con los mismos
+   * tokens y se bajaba la serie homónima.
+   */
+  const articleCompatible = (rawCand: string[]): boolean => {
+    const candArticle = rawCand[0] && LEADING_ARTICLES.has(rawCand[0]) ? rawCand[0] : ''
+    const relArticle = rawSeries[0] && LEADING_ARTICLES.has(rawSeries[0]) ? rawSeries[0] : ''
+    return !relArticle || relArticle === candArticle
+  }
 
   const seriesFlat = flat(series)
-  for (const tokens of cands) {
+  for (const { tokens, raw } of cands) {
+    if (!articleCompatible(raw)) continue
     if (flat(tokens) === seriesFlat) return true
     if (isTailOfTitle(tokens)) return true
   }
