@@ -13,7 +13,10 @@ import { spawn } from 'child_process';
 import { BrowserWindow } from 'electron';
 import { eventBus } from './event-bus';
 import { computeDestination, safeSegment, seriesNameMatches, getAltTitlesCached } from './media-layout';
-import { createExtractorFromFile } from 'node-unrar-js';
+// El paquete declara `module: ./esm/index.esm.js` (build de navegador), que NO
+// exporta createExtractorFromFile: Rollup fallaba con "is not exported" al
+// empaquetar el main. El fichero Node es esm/index.js, que sí lo exporta.
+import { createExtractorFromFile } from 'node-unrar-js/esm/index.js';
 
 let workerInterval: NodeJS.Timeout | null = null;
 const activeLocalDownloads = new Map<string, boolean>();
