@@ -10,6 +10,7 @@ import {
   type ParsedRelease,
 } from '../../electron/media-layout'
 import { durationMatches, durationToleranceMin } from '../../electron/preflight'
+import { isDebridCDN } from '../../electron/downloader'
 import { meetsMinQuality, parseQualitySetting, type VideoQuality } from '../../electron/quality'
 import { healLibrary } from '../../electron/library-heal'
 import { orderTargetsForQueue, type QueueTarget } from '../../electron/monitor'
@@ -77,6 +78,7 @@ export interface World {
   minQuality?: VideoQuality
   qualityOk?: boolean
   fileEpisode?: { season: number; episode: number } | null
+  cdnUrl?: string
   jfKey?: string
   jfHeaders?: Record<string, string>
   jfBase?: string
@@ -987,6 +989,22 @@ export const stepDefs: Array<{ pattern: RegExp; fn: StepFn }> = [
       const got = world.rdChosen ?? []
       if (JSON.stringify(got) !== JSON.stringify(want)) {
         throw new Error(`ids seleccionados ${got.join(',')} · esperados ${want.join(',')}`)
+      }
+    },
+  },
+  {
+    pattern: /^la URL de descarga es "([^"]*)"$/,
+    fn: ({ world }, url) => {
+      world.cdnUrl = url
+    },
+  },
+  {
+    pattern: /^la descarga se (acepta|rechaza)$/,
+    fn: ({ world }, verdict) => {
+      const ok = isDebridCDN(world.cdnUrl ?? '')
+      const want = verdict === 'acepta'
+      if (ok !== want) {
+        throw new Error(`isDebridCDN(${world.cdnUrl}) = ${ok} · esperado ${want}`)
       }
     },
   },
