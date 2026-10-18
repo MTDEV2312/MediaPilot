@@ -27,7 +27,8 @@ import {
   isStaleTorrent,
   type AccountStatus,
 } from '../../electron/debrid-status'
-import { episodeFromFileName, reorderedAudioIndexes } from '../../electron/postprocess'
+import { episodeFromFileName, reorderedAudioIndexes, canonicalEpisodeFileName, type EpisodeRef } from '../../electron/postprocess'
+import { releaseCoverage, planDuplicateSkip, type Coverage, type ExistingCoverage } from '../../electron/download-dedupe'
 import { shouldDeferAttempt, nextAttemptAfterFailure } from '../../electron/attempts'
 import { normalizePosterUrl, posterBackfillPatch } from '../../electron/posters'
 import {
@@ -79,6 +80,13 @@ export interface World {
   qualityOk?: boolean
   fileEpisode?: { season: number; episode: number } | null
   cdnUrl?: string
+  dedupeName?: string
+  dedupeCoverage?: Coverage | null
+  dedupeExisting?: ExistingCoverage[]
+  dedupePlan?: { skip: boolean; reason: string }
+  canonicalLabel?: string
+  canonicalRef?: EpisodeRef
+  canonicalName?: string
   jfKey?: string
   jfHeaders?: Record<string, string>
   jfBase?: string
@@ -1006,6 +1014,130 @@ export const stepDefs: Array<{ pattern: RegExp; fn: StepFn }> = [
       if (ok !== want) {
         throw new Error(`isDebridCDN(${world.cdnUrl}) = ${ok} · esperado ${want}`)
       }
+    },
+  },
+  {
+    pattern: /^el release se llama "([^"]*)"$/,
+    fn: ({ world }, name) => {
+      world.dedupeName = name
+    },
+  },
+  {
+    pattern: /^miro qué cubre$/,
+    fn: ({ world }) => {
+      world.dedupeCoverage = releaseCoverage(world.dedupeName ?? '')
+    },
+  },
+  {
+    pattern: /^cubre la temporada "([^"]*)" y el episodio "([^"]*)"$/,
+    fn: ({ world }, season, episode) => {
+      const cov = world.dedupeCoverage
+      if (!cov) throw new Error('el release no cubre nada')
+      const wantSeason = Number(season)
+      const wantEpisode = episode === '—' ? null : Number(episode)
+      if (cov.season !== wantSeason || cov.episode !== wantEpisode) {
+        throw new Error(`cubre T${cov.season}E${cov.episode} · esperado T${wantSeason}E${wantEpisode}`)
+      }
+    },
+  },
+  {
+    pattern: /^no cubre nada$/,
+    fn: ({ world }) => {
+      if (world.dedupeCoverage) {
+        throw new Error(`cubre T${world.dedupeCoverage.season}E${world.dedupeCoverage.episode}`)
+      }
+    },
+  },
+  {
+    pattern: /^la cola tiene los episodios "([^"]*)"( en estado fallido)?$/,
+    fn: ({ world }, list, failed) => {
+      world.dedupeExisting = String(list || '')
+        .split(',')
+        .filter(Boolean)
+        .map((token) => {
+          const m = /S(\d+)E(\d+)/i.exec(token.trim())
+          return {
+            season: m ? Number(m[1]) : null,
+            episode: m ? Number(m[2]) : null,
+            pack: false,
+            source: 'download' as const,
+            status: failed ? 'failed' : 'pending',
+            name: token.trim(),
+          }
+        })
+    },
+  },
+  {
+    pattern: /^la cola tiene el pack de la temporada "(\d+)"$/,
+    fn: ({ world }, season) => {
+      world.dedupeExisting = [{
+        season: Number(season),
+        episode: null,
+        pack: true,
+        source: 'download' as const,
+        status: 'downloading',
+        name: `Demo S${season} pack`,
+      }]
+    },
+  },
+  {
+    pattern: /^el disco tiene los episodios "([^"]*)"$/,
+    fn: ({ world }, list) => {
+      const fromDisk = String(list || '')
+        .split(',')
+        .filter(Boolean)
+        .map((token) => {
+          const m = /S(\d+)E(\d+)/i.exec(token.trim())
+          return {
+            season: m ? Number(m[1]) : null,
+            episode: m ? Number(m[2]) : null,
+            pack: false,
+            source: 'disco' as const,
+            status: 'downloaded',
+            name: token.trim(),
+          }
+        })
+      world.dedupeExisting = [...(world.dedupeExisting ?? []), ...fromDisk]
+    },
+  },
+  {
+    pattern: /^llega el release "([^"]*)"$/,
+    fn: ({ world }, name) => {
+      const cov = releaseCoverage(name)
+      if (!cov) throw new Error(`${name} no cubre nada`)
+      world.dedupePlan = planDuplicateSkip(cov, world.dedupeExisting ?? [])
+    },
+  },
+  {
+    pattern: /^se omite por duplicado$/,
+    fn: ({ world }) => {
+      if (!world.dedupePlan?.skip) throw new Error('no se detectó duplicado')
+    },
+  },
+  {
+    pattern: /^no se omite$/,
+    fn: ({ world }) => {
+      if (world.dedupePlan?.skip) throw new Error(`se omitió: ${world.dedupePlan.reason}`)
+    },
+  },
+  {
+    pattern: /^la serie se llama "([^"]*)" y el episodio es de la temporada (\d+) número (\d+)$/,
+    fn: ({ world }, label, season, episode) => {
+      world.canonicalLabel = label
+      world.canonicalRef = { season: Number(season), episode: Number(episode) }
+    },
+  },
+  {
+    pattern: /^calculo el nombre canónico con extensión "([^"]*)"$/,
+    fn: ({ world }, ext) => {
+      if (!world.canonicalRef) throw new Error('falta temporada/episodio')
+      world.canonicalName = canonicalEpisodeFileName(world.canonicalLabel ?? '', world.canonicalRef, ext)
+    },
+  },
+  {
+    pattern: /^el nombre canónico es "([^"]*)"$/,
+    fn: ({ world }, want) => {
+      if (world.canonicalName !== want) throw new Error(`nombre ${world.canonicalName} · esperado ${want}`)
     },
   },
 ]

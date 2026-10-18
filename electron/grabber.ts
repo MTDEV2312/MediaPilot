@@ -4,7 +4,7 @@
 // the winner to the debrid service and snapshot the exact destination folder
 // on the download row so the worker routes it without re-parsing.
 import path from 'path'
-import { getSettings, addDownload, getDownloadByTorboxId, updateDownload, deleteDownload, getBadReleaseHashes, getBadReleaseTitles, normalizeReleaseTitle, addBadRelease, type Settings, type DebridService, type LanguageProfile } from './db'
+import { getSettings, getDownloads, addDownload, getDownloadByTorboxId, updateDownload, deleteDownload, getBadReleaseHashes, getBadReleaseTitles, normalizeReleaseTitle, addBadRelease, type Settings, type DebridService, type LanguageProfile } from './db'
 import { recordGrab } from './watchlist'
 import { runPythonLines, setupSearchEnv } from './python-run'
 import { computeDestination, safeSegment, seriesNameMatches, releaseYear, getAltTitlesCached } from './media-layout'
@@ -15,6 +15,7 @@ import { tmdbDetail } from './tmdb'
 import { isVideoName, probeAddedTorrent, type RemoteFile } from './preflight'
 import { getAccountStatus, isInCooldown, cooldownFilter, cooldownLabel } from './debrid-status'
 import { meetsMinQuality, parseQualitySetting, qualityLabel } from './quality'
+import { releaseCoverage, episodesOnDisk, planDuplicateSkip, type ExistingCoverage } from './download-dedupe'
 
 export type GrabLanguage = 'latino' | 'english'
 
@@ -66,7 +67,7 @@ export interface GrabResultItem {
 
 export interface GrabOutcome {
   ok: boolean
-  status: 'grabbed' | 'no_source' | 'error' | 'cooldown'
+  status: 'grabbed' | 'no_source' | 'error' | 'cooldown' | 'already_have'
   language?: 'latino' | 'english'
   source?: string
   service?: DebridService
@@ -640,6 +641,30 @@ export async function grab(target: GrabTarget): Promise<GrabOutcome> {
     base.error = 'Destination folder not configured (set movies/series folders in Settings)'
     return base
   }
+  // ¿Ya lo tenemos? (spec B26) Un episodio que ya está en disco o en la cola no
+  // se vuelve a bajar: era el doble gasto de encolar el pack de temporada y los
+  // episodios sueltos (30 GB de más y dos copias por capítulo).
+  // Los `upgrade` quedan fuera: ahí repetir la descarga ES el objetivo.
+  if (target.mode !== 'upgrade' && target.kind === 'episode' && target.season && target.episode) {
+    try {
+      const existing: ExistingCoverage[] = []
+      for (const row of getDownloads()) {
+        const cov = releaseCoverage(row.name)
+        if (cov) existing.push({ ...cov, source: 'download', status: row.local_status || row.status || '', name: row.name })
+      }
+      for (const ref of episodesOnDisk(destFolder)) {
+        existing.push({ ...ref, pack: false, source: 'disco', status: 'downloaded', name: '' })
+      }
+      const dup = planDuplicateSkip({ season: target.season, episode: target.episode, pack: false }, existing)
+      if (dup.skip) {
+        console.log(`[grab] se omite ${target.title} S${pad2(target.season)}E${pad2(target.episode)}: ${dup.reason}`)
+        return { ...base, ok: true, status: 'already_have', error: dup.reason }
+      }
+    } catch (e: any) {
+      console.warn(`[grab] la comprobación de duplicados falló (se sigue con el grab): ${e?.message || e}`)
+    }
+  }
+
   // Topes de tamaño por tipo: 0 = sin límite. Solo aplican a grabs automáticos.
   const capGb = target.kind === 'movie' ? settings.max_movie_size_gb : settings.max_series_size_gb
   const maxBytes = capGb > 0 ? capGb * 1024 ** 3 : null

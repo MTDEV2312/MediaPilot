@@ -2,7 +2,7 @@ import { TorboxAPI } from './torbox';
 import { RealDebridAPI, chooseRdFileIds } from './realdebrid';
 import { getSettings, getDownloads, addDownload, updateDownload, deleteDownload, getDownloadByTorboxId, releaseStalledPreflights } from './db';
 import { appendDownloadedFile, finalizeReplacement, markGrabFailed, getGrabByTorboxId, findWatchlistItem } from './watchlist';
-import { episodeFromFileName, registerDownloadedEpisodes, normalizeAudioOrder, resolveFolderOwner } from './postprocess';
+import { episodeFromFileName, registerDownloadedEpisodes, normalizeAudioOrder, resolveFolderOwner, renameEpisodesForJellyfin } from './postprocess';
 import { tmdbDetail } from './tmdb';
 import { addBadRelease } from './db';
 import { isStaleTorrent } from './debrid-status';
@@ -453,7 +453,7 @@ async function runTorboxDownload(tid: string, dlData: any, settings: any, token:
     const totalBytes = files.reduce((acc: number, f: any) => acc + getFileSize(f), 0);
     let completedBytes = 0;
     let videosDownloaded = 0;
-    const downloadedVideoPaths: string[] = [];
+    let downloadedVideoPaths: string[] = [];
 
     for (let idx = 0; idx < files.length; idx++) {
       const fileInfo = files[idx];
@@ -562,6 +562,16 @@ async function runTorboxDownload(tid: string, dlData: any, settings: any, token:
     });
     console.log(`[Worker] TorBox download complete: ${dlData.name || tid} → ${destFolder}`)
 
+    // ── Nombre canónico para Jellyfin (spec B27) ──
+    try {
+      const renamed = await renameEpisodesForJellyfin(downloadedVideoPaths)
+      if (renamed.renamed > 0) {
+        downloadedVideoPaths = renamed.files
+        console.log(`[Worker] ${renamed.renamed} archivo(s) con el nombre canónico de Jellyfin`)
+      }
+    } catch (e: any) {
+      console.warn(`[Worker] renombrado de episodios falló: ${e?.message || e}`)
+    }
     // ── Subtítulos automáticos (spa + en) ──────────────
     await fetchSubtitlesForDownload(dlData.name || tid, type, destFolder, downloadedVideoPaths, tid);
     // ── Lo que antes había que hacer a mano con los packs (spec B13/B15) ──
@@ -797,7 +807,7 @@ async function runRealdebridDownload(tid: string, dlData: any, settings: any, to
 
     const totalLinks = links.length;
     let completedBytes = 0;
-    const downloadedVideoPaths: string[] = [];
+    let downloadedVideoPaths: string[] = [];
     const downloadedArchivePaths: string[] = [];
 
     for (let idx = 0; idx < links.length; idx++) {
@@ -911,6 +921,16 @@ async function runRealdebridDownload(tid: string, dlData: any, settings: any, to
     });
     console.log(`[Worker] RD download complete: ${dlData.filename || tid} → ${destFolder}`)
 
+    // ── Nombre canónico para Jellyfin (spec B27) ──
+    try {
+      const renamed = await renameEpisodesForJellyfin(downloadedVideoPaths)
+      if (renamed.renamed > 0) {
+        downloadedVideoPaths = renamed.files
+        console.log(`[Worker] ${renamed.renamed} archivo(s) con el nombre canónico de Jellyfin`)
+      }
+    } catch (e: any) {
+      console.warn(`[Worker] renombrado de episodios falló: ${e?.message || e}`)
+    }
     // ── Subtítulos automáticos (spa + en) ──────────────
     await fetchSubtitlesForDownload(dlData.filename || dlData.name || tid, type, destFolder, downloadedVideoPaths, tid);
     // ── Reemplazo manual EN → latino (el worker borra el EN ya completado) ──
