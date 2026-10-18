@@ -7,7 +7,7 @@ import path from 'path'
 import { getSettings, getDownloads, addDownload, getDownloadByTorboxId, updateDownload, deleteDownload, getBadReleaseHashes, getBadReleaseTitles, normalizeReleaseTitle, addBadRelease, type Settings, type DebridService, type LanguageProfile } from './db'
 import { recordGrab } from './watchlist'
 import { runPythonLines, setupSearchEnv } from './python-run'
-import { computeDestination, safeSegment, seriesNameMatches, releaseYear, getAltTitlesCached } from './media-layout'
+import { computeDestination, safeSegment, seriesNameMatches, releaseYear, getAltTitlesCached, searchTitleCandidates } from './media-layout'
 import { TorboxAPI } from './torbox'
 import { RealDebridAPI } from './realdebrid'
 import { eventBus } from './event-bus'
@@ -442,7 +442,9 @@ async function searchLatino(
 
 /** English fallback via Jackett (meta-search.py --jackett-only). */
 async function searchEnglish(target: GrabTarget): Promise<GrabResultItem[]> {
-  const base = (target.original_title || target.title || '').trim()
+  // Primero el título en alfabeto latino: con un original CJK (anime) los
+  // releases usan el nombre traducido y buscar por el original no encontraba nada.
+  const base = searchTitleCandidates(target)[0] || (target.original_title || target.title || '').trim()
   if (!base) return []
   let query = base
   if (target.kind === 'movie') {

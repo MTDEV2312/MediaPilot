@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import os from 'os'
 import {
+  searchTitleCandidates,
   seriesNameMatches,
   computeDestination,
   parseReleaseName,
@@ -87,6 +88,8 @@ export interface World {
   canonicalLabel?: string
   canonicalRef?: EpisodeRef
   canonicalName?: string
+  searchTarget?: { title?: string; original_title?: string; alt_titles?: string[] }
+  searchPicked?: string[]
   jfKey?: string
   jfHeaders?: Record<string, string>
   jfBase?: string
@@ -1140,6 +1143,30 @@ export const stepDefs: Array<{ pattern: RegExp; fn: StepFn }> = [
       if (world.canonicalName !== want) throw new Error(`nombre ${world.canonicalName} · esperado ${want}`)
     },
   },
+  {
+    pattern: /^una serie con título "([^"]*)" y títulos alternativos "([^"]*)"$/,
+    fn: ({ world }, title, alt) => {
+      const alts = String(alt || '')
+        .split(',')
+        .map((t) => t.trim())
+        .filter((t) => t && !/^<.*>$/.test(t))
+      world.searchTarget = { title, original_title: title, alt_titles: alts }
+    },
+  },
+  {
+    pattern: /^elijo el título para buscar$/,
+    fn: ({ world }) => {
+      world.searchPicked = searchTitleCandidates(world.searchTarget ?? {})
+    },
+  },
+  {
+    pattern: /^el primer título de búsqueda es "([^"]*)"$/,
+    fn: ({ world }, want) => {
+      const got = world.searchPicked?.[0]
+      if (got !== want) throw new Error(`primer título ${got} · esperado ${want}`)
+    },
+  },
+
 ]
 
 function needPlan(world: World): ReconcilePlan {

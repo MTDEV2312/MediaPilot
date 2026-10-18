@@ -484,6 +484,32 @@ function rawTokens(value: string): string[] {
  * Parte "serie" de un nombre de release: lo anterior a SxxEyy, al año o a la
  * primera etiqueta de calidad, sin corchetes de tracker ni paréntesis.
  */
+const tieneLatino = (s: string): boolean => /[A-Za-z]/.test(String(s || ''))
+
+/**
+ * Títulos con los que BUSCAR un release, en orden: primero los que están en
+ * alfabeto latino. Con un original CJK (anime japonés, dramas coreanos) el
+ * nombre que usan los releases es el traducido ("Overgeared" para
+ * テムパル～アイテムの力～), y buscar por el original devolvía 130 resultados que
+ * el matcher rechazaba después: el episodio no se bajaba nunca.
+ */
+export function searchTitleCandidates(target: {
+  title?: string
+  original_title?: string
+  alt_titles?: string[]
+}): string[] {
+  const todos = [target.title, target.original_title, ...(target.alt_titles || [])]
+    .map((t) => String(t || '').trim())
+    .filter(Boolean)
+  // El más corto suele ser el nombre base ("Overgeared" antes que "Overgeared:
+  // The Power of Items") y una consulta corta devuelve igual los releases buenos.
+  const latinos = todos.filter(tieneLatino).sort((a, b) => a.length - b.length)
+  const resto = todos.filter((t) => !tieneLatino(t))
+  const out: string[] = []
+  for (const t of [...latinos, ...resto]) if (!out.includes(t)) out.push(t)
+  return out
+}
+
 export function releaseSeriesName(name: string): string {
   let s = String(name || '').replace(/\.(mkv|mp4|avi|m4v|mov|ts|webm)$/i, '')
   s = s.replace(/\[[^\]]*\]/g, ' ').replace(/\([^)]*\)/g, ' ')

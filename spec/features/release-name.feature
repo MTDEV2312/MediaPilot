@@ -42,3 +42,20 @@ Feature: Aceptación del nombre del release
     When evalúo el release "S01E01 1080p WEB"
     Then el release se "acepta"
     And la app no bloquea por falta de datos
+
+  # Los releases de anime llevan el nombre TRADUCIDO aunque la ficha guarde el
+  # original en japonés: hay que buscar por el latino o la serie no se baja nunca.
+  Scenario Outline: Con título original en japonés se busca por el nombre traducido
+    Given una serie con título "<original>" y títulos alternativos "<alt>"
+    When elijo el título para buscar
+    Then el primer título de búsqueda es "Demo Show"
+
+    Examples:
+      | original          | alt                                  |
+      | デモショー～力～    | Demo Show: The Power of Items,Demo Show |
+      | 데모쇼 ~힘~        | Demo Show,Demo Show ~The Power of Items~ |
+
+  Scenario: Con título latino se busca por ese mismo
+    Given una serie con título "Demo7" y títulos alternativos "<nada>"
+    When elijo el título para buscar
+    Then el primer título de búsqueda es "Demo7"
