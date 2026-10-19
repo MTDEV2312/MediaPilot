@@ -36,6 +36,11 @@ Feature: Aceptación del nombre del release
       | Star Trek Discovery S01E01 1080p WEB h264-ETHEL                  | Demo3 |         | rechaza   |
       | Demo4 Med S14E01 1080p WEB h264-CAKES                          | Demo4             |              | rechaza   |
       | American Demo Stories S01E01 1080p WEB                            | Demo                      |              | rechaza   |
+      # el spin-off homonimo: "Demo" NO es "Demo: Nashville" (el episodio de la
+      # serie original acababa dentro de la carpeta del spin-off)
+      | Demo S10E01 That Sinking Feeling 1080p DSNP WEB-DL DD 5 1 H 264-playWEB | Demo: Nashville |      | rechaza   |
+      | Demo Nashville S02E01 Going Rogue 1080p DSNP WEB-DL DD 5 1 H 264-playWEB | Demo: Nashville |     | acepta    |
+      | Demo S10E01 That Sinking Feeling 1080p DSNP WEB-DL DD 5 1 H 264-playWEB | Demo                  |      | acepta    |
 
   Scenario: Un release sin nombre reconocible no se bloquea
     Given los títulos del objetivo son "Demo"
