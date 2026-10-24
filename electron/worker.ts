@@ -13,6 +13,7 @@ import { spawn } from 'child_process';
 import { BrowserWindow } from 'electron';
 import { eventBus } from './event-bus';
 import { computeDestination, safeSegment, seriesNameMatches, getAltTitlesCached } from './media-layout';
+import { removeLesserVersions } from './version-dedupe';
 // El paquete declara `module: ./esm/index.esm.js` (build de navegador), que NO
 // exporta createExtractorFromFile: Rollup fallaba con "is not exported" al
 // empaquetar el main. El fichero Node es esm/index.js, que sí lo exporta.
@@ -603,6 +604,17 @@ async function runTorboxDownload(tid: string, dlData: any, settings: any, token:
       if (reordered > 0) console.log(`[Worker] ${reordered} archivo(s) con el audio reordenado al idioma preferido`)
     } catch (e: any) {
       console.warn(`[Worker] reordenación de audio falló: ${e?.message || e}`)
+    }
+    // ── Una sola versión por episodio: si llega una copia mejor, la anterior se va ──
+    try {
+      for (const videoPath of downloadedVideoPaths) {
+        const borrados = await removeLesserVersions(videoPath)
+        if (borrados.length > 0) {
+          console.log(`[Worker] ${borrados.length} versión(es) anterior(es) de ${path.basename(videoPath)} eliminada(s)`)
+        }
+      }
+    } catch (e: any) {
+      console.warn(`[Worker] limpieza de versiones peores falló: ${e?.message || e}`)
     }
     // ── Reemplazo manual EN → latino (el worker borra el EN ya completado) ──
     try { finalizeReplacement(tid) } catch (e: any) { console.warn(`[Worker] finalizeReplacement failed: ${e.message}`) }

@@ -30,6 +30,7 @@ import {
 } from '../../electron/debrid-status'
 import { episodeFromFileName, reorderedAudioIndexes, canonicalEpisodeFileName, type EpisodeRef } from '../../electron/postprocess'
 import { releaseCoverage, planDuplicateSkip, type Coverage, type ExistingCoverage } from '../../electron/download-dedupe'
+import { compareVersions, pickKeeper, planRemoval, siblingEpisodes, episodeTag, type VersionInfo } from '../../electron/version-dedupe'
 import { shouldDeferAttempt, nextAttemptAfterFailure } from '../../electron/attempts'
 import { normalizePosterUrl, posterBackfillPatch } from '../../electron/posters'
 import {
@@ -77,6 +78,10 @@ export interface World {
   usable?: Array<{ title: string; cached?: boolean }>
   inCooldown?: boolean
   parsed?: ParsedRelease
+  versiones?: VersionInfo[]
+  versionKeeper?: VersionInfo | null
+  versionRemoval?: VersionInfo[]
+  versionSiblings?: string[]
   minQuality?: VideoQuality
   qualityOk?: boolean
   fileEpisode?: { season: number; episode: number } | null
@@ -1167,6 +1172,89 @@ export const stepDefs: Array<{ pattern: RegExp; fn: StepFn }> = [
     },
   },
 
+  // ── Una sola versión por episodio (B28) ────────────────────────────────
+  {
+    pattern: /^dos versiones del mismo episodio:$/,
+    fn: ({ world, rows }) => {
+      // el parser no entrega la fila de cabecera; si viniera, se descarta
+      const filas = (rows || []).filter((r) => !/^nombre$/i.test(String(r[0] || '').trim()))
+      world.versiones = filas.map((r) => ({
+        path: `/biblioteca/${r[0]}.mkv`,
+        height: Number(r[1]) || 0,
+        bitrate: Number(r[2]) || 0,
+        vcodec: String(r[3] || ''),
+        hasSpanish: /s[ií]/i.test(String(r[4] || '')),
+        mtime: filas.indexOf(r),
+      }))
+    },
+  },
+  {
+    pattern: /^una única versión del episodio "([^"]*)"$/,
+    fn: ({ world }, nombre) => {
+      world.versiones = [{ path: `/biblioteca/${nombre}.mkv`, height: 1080, bitrate: 5_000_000, vcodec: 'h264', hasSpanish: false, mtime: 1 }]
+    },
+  },
+  {
+    pattern: /^tres versiones del mismo episodio$/,
+    fn: ({ world }) => {
+      world.versiones = [
+        { path: '/biblioteca/HDTV.mkv', height: 1080, bitrate: 4_500_000, vcodec: 'h264', hasSpanish: true, mtime: 1 },
+        { path: '/biblioteca/WEB.mkv', height: 1080, bitrate: 9_600_000, vcodec: 'h264', hasSpanish: true, mtime: 2 },
+        { path: '/biblioteca/x265.mkv', height: 1080, bitrate: 6_000_000, vcodec: 'hevc', hasSpanish: true, mtime: 3 },
+      ]
+    },
+  },
+  {
+    pattern: /^elijo la que se queda$/,
+    fn: ({ world }) => {
+      world.versionKeeper = pickKeeper(world.versiones || [])
+      world.versionRemoval = planRemoval(world.versiones || [])
+    },
+  },
+  {
+    pattern: /^se queda "([^"]*)"$/,
+    fn: ({ world }, esperado) => {
+      const k = world.versionKeeper
+      if (!k) throw new Error('no se eligió ninguna versión')
+      const obtenido = String(k.path).split('/').pop()!.replace(/\.mkv$/, '')
+      if (obtenido !== esperado) throw new Error(`se quedó "${obtenido}" · esperado "${esperado}"`)
+    },
+  },
+  {
+    pattern: /^no hay nada que borrar$/,
+    fn: ({ world }) => {
+      const r = world.versionRemoval || []
+      if (r.length !== 0) throw new Error(`se iban a borrar ${r.length} versiones`)
+    },
+  },
+  {
+    pattern: /^queda una sola versión y dos se borran$/,
+    fn: ({ world }) => {
+      const total = (world.versiones || []).length
+      const borrar = (world.versionRemoval || []).length
+      if (borrar !== total - 1 || borrar !== 2) throw new Error(`quedan ${total - borrar} versiones (se borran ${borrar})`)
+    },
+  },
+  {
+    pattern: /^la carpeta tiene "([^"]*)" y "([^"]*)"$/,
+    fn: ({ world }, a, b) => {
+      world.versionSiblings = [a, b]
+    },
+  },
+  {
+    pattern: /^busco versiones del episodio de "([^"]*)"$/,
+    fn: ({ world }, archivo) => {
+      const todos = (world.versionSiblings || []).map((n) => `/biblioteca/${n}`)
+      world.versionSiblings = siblingEpisodes(`/biblioteca/${archivo}`, todos)
+    },
+  },
+  {
+    pattern: /^solo encuentro el suyo$/,
+    fn: ({ world }) => {
+      const s = world.versionSiblings || []
+      if (s.length !== 0) throw new Error(`encontré ${s.length} versiones ajenas: ${s.map((x) => x.split('/').pop()).join(', ')}`)
+    },
+  },
 ]
 
 function needPlan(world: World): ReconcilePlan {
