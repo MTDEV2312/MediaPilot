@@ -184,7 +184,7 @@ spec/                     contrato + escenarios Gherkin ejecutables
 
 ## Notas
 
-- El directorio de datos es `~/.tordownloader-pro/` y la base se llama `tordownloader.db`: nombres
+- El directorio de datos es `~/.mediapilot/` y la base se llama `mediapilot.db`: nombres
   heredados del proyecto original que se mantienen por compatibilidad con las instalaciones
   existentes (se pueden cambiar con la variable `TDP_DATA_DIR`).
 - Los `.exe` de los motores de búsqueda no están en el repositorio: son artefactos de compilación

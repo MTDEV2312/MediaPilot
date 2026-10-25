@@ -5,22 +5,53 @@ import fs from 'fs'
 import { app } from 'electron'
 
 // Web/headless mode: TDP_DATA_DIR env wins; Electron desktop falls back to
-// userData; plain Node (server.ts) falls back to ~/.tordownloader-pro.
+// userData; plain Node (server.ts) falls back to ~/.mediapilot.
 function resolveDBPath(): string {
   if (process.env.TDP_DATA_DIR) {
-    return path.join(process.env.TDP_DATA_DIR, 'tordownloader.db')
+    return path.join(process.env.TDP_DATA_DIR, 'mediapilot.db')
   }
   if (typeof app !== 'undefined' && app && typeof app.getPath === 'function') {
-    return path.join(app.getPath('userData'), 'tordownloader.db')
+    return path.join(app.getPath('userData'), 'mediapilot.db')
   }
-  return path.join(os.homedir(), '.tordownloader-pro', 'tordownloader.db')
+  return path.join(os.homedir(), '.mediapilot', 'mediapilot.db')
 }
 
 const DB_PATH = resolveDBPath()
 let db: Database.Database
 
+
+/**
+ * Importa la base de una instalación anterior si la de esta versión todavía no
+ * existe. Al cambiar el nombre de la app o del archivo de base, la ruta nueva
+ * aparece vacía: sin esto, quien ya la tenía instalada arrancaría sin biblioteca,
+ * sin watchlist y sin tokens. Nunca sobrescribe: sólo copia si el destino falta.
+ */
+function migrateLegacyDB(target: string): void {
+  try {
+    if (fs.existsSync(target)) return
+    const candidatos = [path.join(path.dirname(target), 'tordownloader.db'),
+                        path.join(os.homedir(), '.tordownloader-pro', 'tordownloader.db')]
+    try {
+      if (typeof app !== 'undefined' && app && typeof app.getPath === 'function') {
+        candidatos.push(path.join(app.getPath('appData'), 'TorDownloader PRO', 'tordownloader.db'))
+      }
+    } catch { /* app no lista todavía */ }
+    for (const origen of candidatos) {
+      if (origen !== target && fs.existsSync(origen)) {
+        fs.mkdirSync(path.dirname(target), { recursive: true })
+        fs.copyFileSync(origen, target)
+        console.log(`[DB] base de la versión anterior importada: ${origen} → ${target}`)
+        return
+      }
+    }
+  } catch (e: any) {
+    console.warn(`[DB] no se pudo importar la base anterior: ${e?.message || e}`)
+  }
+}
+
 export function initDB(): void {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })
+  migrateLegacyDB(DB_PATH)
   db = new Database(DB_PATH)
   db.pragma('journal_mode = WAL')
 
