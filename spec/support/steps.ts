@@ -49,6 +49,7 @@ import {
 import { getSettings, updateSettings } from '../../electron/db'
 import { isBenignUpdateError } from '../../electron/updater'
 import { chooseBest, isCamRelease, type GrabTarget, type GrabResultItem } from '../../electron/grabber'
+import { diagnoseNativeError, nativeHelp, type NativeDiagnostico } from '../../electron/native-guard'
 import { chooseRdFileIds } from '../../electron/realdebrid'
 
 export interface World {
@@ -128,6 +129,8 @@ export interface World {
   grabReleases?: GrabResultItem[]
   grabChosen?: GrabResultItem | null
   camVerdict?: boolean
+  nativeDiag?: NativeDiagnostico
+  nativeAviso?: string
 }
 
 export interface StepRun {
@@ -1325,6 +1328,51 @@ export const stepDefs: Array<{ pattern: RegExp; fn: StepFn }> = [
       if (world.camVerdict !== want) {
         throw new Error(`se esperaba ${want ? 'sí' : 'no'} y salió ${world.camVerdict ? 'sí' : 'no'}`)
       }
+    },
+  },
+
+  // ── B30 · el módulo nativo que no carga dice cómo arreglarlo ─────────────
+  {
+    pattern: /^diagnostico el error nativo "([^"]*)"(?: en Electron "([^"]*)")?$/,
+    fn: ({ world }, mensaje, electron) => {
+      world.nativeDiag = diagnoseNativeError(new Error(mensaje), electron || undefined)
+      world.nativeAviso = nativeHelp(world.nativeDiag)
+    },
+  },
+  {
+    pattern: /^el problema es "([^"]*)"$/,
+    fn: ({ world }, esperado) => {
+      if (!world.nativeDiag) throw new Error('no se diagnosticó ningún error nativo')
+      if (world.nativeDiag.problema !== esperado) {
+        throw new Error(`se esperaba "${esperado}" y salió "${world.nativeDiag.problema}"`)
+      }
+    },
+  },
+  {
+    pattern: /^el arreglo es "([^"]*)"$/,
+    fn: ({ world }, esperado) => {
+      if (!world.nativeDiag) throw new Error('no se diagnosticó ningún error nativo')
+      if (world.nativeDiag.arreglo !== esperado) {
+        throw new Error(`se esperaba "${esperado}" y salió "${world.nativeDiag.arreglo}"`)
+      }
+    },
+  },
+  {
+    pattern: /^el aviso menciona "([^"]*)" y "([^"]*)"$/,
+    fn: ({ world }, a, b) => {
+      const aviso = world.nativeAviso || ''
+      for (const trozo of [a, b]) {
+        if (!aviso.includes(trozo)) throw new Error(`el aviso no menciona "${trozo}": ${aviso}`)
+      }
+    },
+  },
+  {
+    pattern: /^el aviso incluye el comando$/,
+    fn: ({ world }) => {
+      const aviso = world.nativeAviso || ''
+      const cmd = world.nativeDiag?.arreglo || ''
+      if (!cmd || !aviso.includes(cmd)) throw new Error(`el aviso no trae el comando "${cmd}"`)
+      if (aviso.includes('reading') && aviso.includes('undefined')) throw new Error('el aviso repite el error de JavaScript en vez de explicarlo')
     },
   },
 

@@ -1,4 +1,5 @@
-import Database, { type Database as DatabaseType } from 'better-sqlite3'
+import type { Database as DatabaseType } from 'better-sqlite3'
+import { loadBetterSqlite3 } from './native-guard'
 import path from 'path'
 import os from 'os'
 import fs from 'fs'
@@ -17,7 +18,7 @@ function resolveDBPath(): string {
 }
 
 const DB_PATH = resolveDBPath()
-let db: Database.Database
+let db: DatabaseType
 
 
 /**
@@ -52,6 +53,9 @@ function migrateLegacyDB(target: string): void {
 export function initDB(): void {
   fs.mkdirSync(path.dirname(DB_PATH), { recursive: true })
   migrateLegacyDB(DB_PATH)
+  // Carga diferida: si el módulo nativo no cuadra con este runtime, el mensaje
+  // de error aparece aquí y con el comando que lo arregla (native-guard).
+  const Database = loadBetterSqlite3()
   db = new Database(DB_PATH)
   db.pragma('journal_mode = WAL')
 
