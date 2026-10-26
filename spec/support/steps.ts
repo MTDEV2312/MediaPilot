@@ -48,6 +48,7 @@ import {
 } from '../../electron/watchlist'
 import { getSettings, updateSettings } from '../../electron/db'
 import { isBenignUpdateError } from '../../electron/updater'
+import { chooseBest, isCamRelease, type GrabTarget, type GrabResultItem } from '../../electron/grabber'
 import { chooseRdFileIds } from '../../electron/realdebrid'
 
 export interface World {
@@ -123,6 +124,10 @@ export interface World {
   esperadoLeve?: boolean
   ajusteGuardado?: { clave: string; valor: any }
   resultadoAjustes?: { ok: boolean; applied: number; ignored: string[] }
+  grabTarget?: GrabTarget
+  grabReleases?: GrabResultItem[]
+  grabChosen?: GrabResultItem | null
+  camVerdict?: boolean
 }
 
 export interface StepRun {
@@ -1255,6 +1260,74 @@ export const stepDefs: Array<{ pattern: RegExp; fn: StepFn }> = [
       if (s.length !== 0) throw new Error(`encontré ${s.length} versiones ajenas: ${s.map((x) => x.split('/').pop()).join(', ')}`)
     },
   },
+  // ── B28 · los releases de cámara no se eligen solos ──────────────────────
+  {
+    pattern: /^un objetivo de película "([^"]*)" de (\d{4})$/,
+    fn: ({ world }, title, year) => {
+      world.grabTarget = {
+        watchlist_id: 1,
+        tmdb_id: 0,
+        media_type: 'movie',
+        title,
+        year,
+        kind: 'movie',
+        language_profile: 'latino_first',
+      }
+    },
+  },
+  {
+    pattern: /^los releases disponibles "([^"]*)"$/,
+    fn: ({ world }, list) => {
+      world.grabReleases = list.split('|').map((s) => s.trim()).filter(Boolean).map((title, i) => ({
+        title,
+        size: '4.0 GB',
+        seeders: 100 - i,
+        peers: 110 - i,
+        link: '',
+        indexer: 'prueba',
+        // sin infohash el release ni se puntúa (score -900), así que cada uno lleva el suyo
+        info_hash: String(i + 1).padStart(40, '0'),
+        latino: false,
+      }))
+    },
+  },
+  {
+    pattern: /^elijo el mejor release$/,
+    fn: ({ world }) => {
+      if (!world.grabTarget) throw new Error('falta el objetivo de la película')
+      world.grabChosen = chooseBest(world.grabReleases || [], world.grabTarget)
+    },
+  },
+  {
+    pattern: /^se elige "([^"]*)"$/,
+    fn: ({ world }, esperado) => {
+      const elegido = world.grabChosen
+      if (!elegido) throw new Error(`se esperaba "${esperado}" y no se eligió ningún release`)
+      if (elegido.title !== esperado) throw new Error(`se esperaba "${esperado}" y se eligió "${elegido.title}"`)
+    },
+  },
+  {
+    pattern: /^no se elige ningún release$/,
+    fn: ({ world }) => {
+      if (world.grabChosen) throw new Error(`no debía elegirse nada y se eligió "${world.grabChosen.title}"`)
+    },
+  },
+  {
+    pattern: /^evalúo si "([^"]*)" es de cámara$/,
+    fn: ({ world }, release) => {
+      world.camVerdict = isCamRelease(release)
+    },
+  },
+  {
+    pattern: /^el veredicto es "(sí|si|no)"$/,
+    fn: ({ world }, esperado) => {
+      const want = esperado === 'no' ? false : true
+      if (world.camVerdict !== want) {
+        throw new Error(`se esperaba ${want ? 'sí' : 'no'} y salió ${world.camVerdict ? 'sí' : 'no'}`)
+      }
+    },
+  },
+
 ]
 
 function needPlan(world: World): ReconcilePlan {

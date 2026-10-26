@@ -136,6 +136,16 @@ function hasSeasonPackToken(title: string): boolean {
 }
 
 /** Score a candidate for a specific target. Higher wins; drop below -500. */
+/**
+ * Releases de cámara (grabados en sala y volcados a telecine/tele-sync). Nunca
+ * se eligen solos: un TS de un estreno recién salido tiene seeds de sobra y
+ * 1080p, así que sumaba puntuación suficiente para pasar el corte de -500 y
+ * acababa en la biblioteca. El añadido a mano lo decide el usuario.
+ */
+export function isCamRelease(title: string): boolean {
+  return /(camrip|\bcam\b|telesync|\bts\b|hdcam|screener|telecine)/i.test(title || '')
+}
+
 function scoreResult(r: GrabResultItem, target: GrabTarget): number {
   const t = (r.title || '').trim()
   if (!t) return -1000
@@ -185,7 +195,7 @@ function scoreResult(r: GrabResultItem, target: GrabTarget): number {
       if (yearMatch[0] === target.year) score += 40
       else score -= 120
     }
-    if (/(camrip|cam\b|telesync|ts\b|hdcam|screener|telecine)/i.test(lower)) score -= 400
+    if (isCamRelease(lower)) return -999
     if (/(1080p|1080)/i.test(lower)) score += 60
     else if (/(2160p|4k\b|uhd)/i.test(lower)) score += 80
     else if (/(720p)/i.test(lower)) score += 30
