@@ -62,7 +62,10 @@ describe('Library API contract', () => {
   })
 
   it('webAPI.getLibraryPoster resolves poster URL for HTTP web mode', async () => {
-    const url = await webAPI.getLibraryPoster('movie', 'Película (2024)')
-    expect(url).toBe('/api/library/poster?t=movie&f=Pel%C3%ADcula%20(2024)')
+    const movieUrl = await webAPI.getLibraryPoster('movie', 'Película (2024)')
+    expect(movieUrl).toBe('/api/library/poster?t=movie&f=Pel%C3%ADcula%20(2024)')
+
+    const seriesUrl = await webAPI.getLibraryPoster('series', 'Serie (2024)')
+    expect(seriesUrl).toBe('/api/library/poster?t=series&f=Serie%20(2024)')
   })
 })

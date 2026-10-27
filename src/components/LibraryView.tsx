@@ -1,21 +1,65 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Film, Tv, Trash2, Search, ChevronDown, ChevronRight, RefreshCw, X, HardDrive } from 'lucide-react'
 import { useT } from '../i18n'
-import { http, isWebMode } from '../hooks/http'
+import { http, isWebMode, apiBase } from '../hooks/http'
 import { getElectronAPI } from '../types/electron'
 
-function MoviePoster({ dir, poster, title }: { dir: string; poster: string; title: string }) {
-  const [src, setSrc] = useState(poster)
+function LibraryPoster({
+  kind,
+  dir,
+  poster,
+  title,
+}: {
+  kind: 'movie' | 'series'
+  dir: string
+  poster?: string
+  title: string
+}) {
+  const [src, setSrc] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
-    if (poster && !isWebMode()) {
-      getElectronAPI()?.getLibraryPoster?.('movie', dir).then((dataUrl) => {
-        if (dataUrl) setSrc(dataUrl)
-      })
+    setFailed(false)
+    if (!poster) {
+      setSrc(null)
+      return
     }
-  }, [poster, dir])
 
-  if (!poster) return null
+    if (poster.startsWith('http://') || poster.startsWith('https://')) {
+      setSrc(poster)
+      return
+    }
+
+    if (isWebMode()) {
+      setSrc(`${apiBase()}${poster}`)
+      return
+    }
+
+    let cancelled = false
+    const ea = getElectronAPI()
+    if (ea?.getLibraryPoster) {
+      ea.getLibraryPoster(kind, dir)
+        .then((dataUrl) => {
+          if (cancelled) return
+          if (dataUrl) {
+            setSrc(dataUrl)
+          } else {
+            setSrc(`${apiBase()}${poster}`)
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setSrc(`${apiBase()}${poster}`)
+        })
+    } else {
+      setSrc(`${apiBase()}${poster}`)
+    }
+
+    return () => {
+      cancelled = true
+    }
+  }, [poster, dir, kind])
+
+  if (!poster || !src || failed) return null
 
   return (
     <img
@@ -23,7 +67,7 @@ function MoviePoster({ dir, poster, title }: { dir: string; poster: string; titl
       alt={title}
       className="relative w-full h-full object-cover"
       loading="lazy"
-      onError={(e) => { e.currentTarget.style.display = 'none' }}
+      onError={() => setFailed(true)}
     />
   )
 }
@@ -51,6 +95,7 @@ interface LibSeries {
   looseVideos: string[]
   inWatchlist: boolean
   watchlistId: number | null
+  poster?: string
 }
 interface LibMovie {
   title: string
@@ -237,7 +282,7 @@ export function LibraryView({ showToast }: { showToast: (msg: string, type?: 'su
                   <div className="absolute inset-0 flex items-center justify-center text-text-muted">
                     <Film size={34} strokeWidth={1.4} />
                   </div>
-                  <MoviePoster dir={m.dir} poster={m.poster} title={m.title} />
+                  <LibraryPoster kind="movie" dir={m.dir} poster={m.poster} title={m.title} />
                   {m.inWatchlist && (
                     <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-bg-deep/85 text-success backdrop-blur-sm">
                       {t.library.inWatchlist}
@@ -276,9 +321,15 @@ export function LibraryView({ showToast }: { showToast: (msg: string, type?: 'su
                   <div className="flex items-center gap-3 p-3">
                     <button className="flex items-center gap-3 flex-1 min-w-0 text-left" onClick={() => toggle(s.dir)}>
                       {isOpen ? <ChevronDown size={16} className="text-text-muted shrink-0" /> : <ChevronRight size={16} className="text-text-muted shrink-0" />}
-                      <div className="min-w-0">
+                      <div className="relative w-12 sm:w-14 aspect-[2/3] shrink-0 rounded-lg overflow-hidden bg-bg-input border border-border/60 shadow-sm">
+                        <div className="absolute inset-0 flex items-center justify-center text-text-muted">
+                          <Tv size={18} strokeWidth={1.4} />
+                        </div>
+                        <LibraryPoster kind="series" dir={s.dir} poster={s.poster} title={s.title} />
+                      </div>
+                      <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold text-text-heading truncate">{s.title} <span className="text-text-muted font-normal">{s.year ? `· ${s.year}` : ''}</span></div>
-                        <div className="text-[11px] text-text-muted">
+                        <div className="text-[11px] text-text-muted mt-0.5">
                           {s.seasons.length} {t.library.seasons} · {fmtBytes(s.sizeBytes)}
                           {s.inWatchlist ? <span className="text-success font-bold ml-2 uppercase text-[10px]">{t.library.inWatchlist}</span> : null}
                         </div>

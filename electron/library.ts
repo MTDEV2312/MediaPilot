@@ -47,6 +47,7 @@ export interface LibrarySeries {
   looseVideos: string[]
   inWatchlist: boolean
   watchlistId: number | null
+  poster: string
 }
 export interface LibraryMovie {
   title: string
@@ -64,6 +65,19 @@ export interface LibrarySnapshot {
   roots: { movies: string; series: string }
   jellyfinConfigured: boolean
   posters: boolean
+}
+
+const POSTER_FILE_NAMES = ['poster.jpg', 'poster.png', 'poster.jpeg', 'poster.webp', 'folder.jpg', 'folder.png', 'cover.jpg', 'cover.png']
+
+export function findLocalPosterFile(dir: string): string | null {
+  try {
+    if (!dir || !fs.existsSync(dir)) return null
+    for (const name of POSTER_FILE_NAMES) {
+      const p = path.join(dir, name)
+      if (fs.existsSync(p)) return p
+    }
+  } catch { /* ignore */ }
+  return null
 }
 
 // ── Jellyfin index (para pósters) ─────────────────────────
@@ -111,7 +125,10 @@ async function jellyfinIndex(): Promise<Map<string, JellyfinItem>> {
         const isSeries = String(item.Type || '') === 'Series'
         const candidates = isSeries ? [base, parent] : [parent, base]
         for (const name of candidates) {
-          if (name && !name.includes('.')) map.set(jfKey(String(item.Type || ''), name), item as JellyfinItem)
+          if (name) map.set(jfKey(String(item.Type || ''), name), item as JellyfinItem)
+        }
+        if (item.Name) {
+          map.set(jfKey(String(item.Type || ''), String(item.Name).trim()), item as JellyfinItem)
         }
       }
       console.log(`[library] índice Jellyfin: ${map.size} items (pósters disponibles)`)
@@ -128,6 +145,21 @@ async function jellyfinIndex(): Promise<Map<string, JellyfinItem>> {
 /** Póster (bytes) de un item de la biblioteca, proxied para no exponer la key. */
 export async function fetchJellyfinPoster(folderName: string, kind: 'movie' | 'series'): Promise<{ buffer: Buffer; contentType: string } | null> {
   const settings = getSettings()
+  const baseDir = kind === 'series' ? settings.series_folder : settings.movies_folder
+  const targetDir = fs.existsSync(folderName) ? folderName : (baseDir ? path.join(baseDir, path.basename(folderName)) : folderName)
+
+  // 1. Archivo de imagen local en el directorio
+  const localFile = findLocalPosterFile(targetDir)
+  if (localFile) {
+    try {
+      const buffer = fs.readFileSync(localFile)
+      const ext = path.extname(localFile).toLowerCase()
+      const contentType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
+      return { buffer, contentType }
+    } catch { /* continuar a Jellyfin */ }
+  }
+
+  // 2. Jellyfin API
   const url = (settings.jellyfin_url || '').trim().replace(/\/+$/, '')
   const key = (settings.jellyfin_api_key || '').trim()
   if (!url || !key) return null
@@ -196,21 +228,21 @@ function parseEpisode(fileName: string): { season: number | null; episode: numbe
   return { season: null, episode: null }
 }
 
-function watchlistLookup(title: string, year: string): { inWatchlist: boolean; watchlistId: number | null } {
+function watchlistLookup(title: string, year: string): { inWatchlist: boolean; watchlistId: number | null; posterUrl: string } {
   try {
     const db = getDB()
-    const row = db.prepare('SELECT id FROM watchlist WHERE lower(title) = lower(?) LIMIT 1').get(title) as any
-    if (row) return { inWatchlist: true, watchlistId: row.id }
+    const row = db.prepare('SELECT id, poster FROM watchlist WHERE lower(title) = lower(?) LIMIT 1').get(title) as any
+    if (row) return { inWatchlist: true, watchlistId: row.id, posterUrl: row.poster || '' }
     // Try the "Demo2 (ES)"/"Demo2 (EN)" style mismatch: match by year + loose title prefix.
-    const rows = db.prepare('SELECT id, title FROM watchlist').all() as any[]
+    const rows = db.prepare('SELECT id, title, poster FROM watchlist').all() as any[]
     const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
     const nt = norm(title)
     for (const r of rows) {
       const nw = norm(String(r.title))
-      if (nw && nt && (nw.startsWith(nt) || nt.startsWith(nw))) return { inWatchlist: true, watchlistId: r.id }
+      if (nw && nt && (nw.startsWith(nt) || nt.startsWith(nw))) return { inWatchlist: true, watchlistId: r.id, posterUrl: r.poster || '' }
     }
   } catch { /* watchlist table may be empty */ }
-  return { inWatchlist: false, watchlistId: null }
+  return { inWatchlist: false, watchlistId: null, posterUrl: '' }
 }
 
 export async function scanLibrary(): Promise<LibrarySnapshot> {
@@ -232,8 +264,12 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
       for (const f of fs.readdirSync(dir)) if (VIDEO_RE.test(f)) videos += 1
       const { title, year } = parseTitleYear(entry.name)
       const wl = watchlistLookup(title, year)
-      const hasPoster = Boolean(postering.get(jfKey('Movie', entry.name))?.ImageTags?.Primary)
-      movies.push({ title, year, dir, sizeBytes: bytes, videos, poster: posterUrlFor('movie', entry.name, hasPoster), ...wl })
+      const hasLocalPoster = Boolean(findLocalPosterFile(dir))
+      const hasJfPoster = Boolean(postering.get(jfKey('Movie', entry.name))?.ImageTags?.Primary)
+      const poster = (hasLocalPoster || hasJfPoster)
+        ? posterUrlFor('movie', entry.name, true)
+        : (wl.posterUrl || '')
+      movies.push({ title, year, dir, sizeBytes: bytes, videos, poster, inWatchlist: wl.inWatchlist, watchlistId: wl.watchlistId })
     }
     movies.sort((a, b) => a.title.localeCompare(b.title, 'es'))
   }
@@ -280,7 +316,12 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
       const { bytes } = dirSize(dir)
       const { title, year } = parseTitleYear(entry.name)
       const wl = watchlistLookup(title, year)
-      series.push({ title, year, dir, sizeBytes: bytes, seasons, looseVideos, ...wl })
+      const hasLocalPoster = Boolean(findLocalPosterFile(dir))
+      const hasJfPoster = Boolean(postering.get(jfKey('Series', entry.name))?.ImageTags?.Primary)
+      const poster = (hasLocalPoster || hasJfPoster)
+        ? posterUrlFor('series', entry.name, true)
+        : (wl.posterUrl || '')
+      series.push({ title, year, dir, sizeBytes: bytes, seasons, looseVideos, poster, inWatchlist: wl.inWatchlist, watchlistId: wl.watchlistId })
     }
     series.sort((a, b) => a.title.localeCompare(b.title, 'es'))
   }
