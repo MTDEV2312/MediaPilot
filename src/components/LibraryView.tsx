@@ -20,38 +20,47 @@ function LibraryPoster({
 
   useEffect(() => {
     setFailed(false)
-    if (!poster) {
+    let cancelled = false
+
+    if (!poster && !dir) {
       setSrc(null)
       return
     }
 
-    if (poster.startsWith('http://') || poster.startsWith('https://')) {
+    // 1. Direct external URL (e.g. TMDB)
+    if (poster && (poster.startsWith('http://') || poster.startsWith('https://'))) {
       setSrc(poster)
       return
     }
 
-    if (isWebMode()) {
-      setSrc(`${apiBase()}${poster}`)
+    // 2. Web mode: use apiBase() prefix for relative endpoints
+    if (isWebMode() && poster) {
+      setSrc(poster.startsWith('http') ? poster : `${apiBase()}${poster}`)
       return
     }
 
-    let cancelled = false
+    // 3. Desktop Electron (file:// protocol):
+    // Use IPC to fetch base64 data URL. NEVER set bare relative '/api/...' under file://!
     const ea = getElectronAPI()
     if (ea?.getLibraryPoster) {
       ea.getLibraryPoster(kind, dir)
         .then((dataUrl) => {
           if (cancelled) return
-          if (dataUrl) {
+          if (dataUrl && (dataUrl.startsWith('data:') || dataUrl.startsWith('http://') || dataUrl.startsWith('https://'))) {
             setSrc(dataUrl)
-          } else {
-            setSrc(`${apiBase()}${poster}`)
+          } else if (poster && poster.startsWith('http')) {
+            setSrc(poster)
+          } else if (poster && !isWebMode()) {
+            const rel = poster.startsWith('/') ? poster : `/${poster}`
+            setSrc(`http://127.0.0.1:9650${rel}`)
           }
         })
         .catch(() => {
-          if (!cancelled) setSrc(`${apiBase()}${poster}`)
+          if (cancelled) return
+          if (poster && poster.startsWith('http')) setSrc(poster)
         })
-    } else {
-      setSrc(`${apiBase()}${poster}`)
+    } else if (poster && poster.startsWith('http')) {
+      setSrc(poster)
     }
 
     return () => {
@@ -59,7 +68,7 @@ function LibraryPoster({
     }
   }, [poster, dir, kind])
 
-  if (!poster || !src || failed) return null
+  if (!src || failed) return null
 
   return (
     <img
@@ -321,9 +330,9 @@ export function LibraryView({ showToast }: { showToast: (msg: string, type?: 'su
                   <div className="flex items-center gap-3 p-3">
                     <button className="flex items-center gap-3 flex-1 min-w-0 text-left" onClick={() => toggle(s.dir)}>
                       {isOpen ? <ChevronDown size={16} className="text-text-muted shrink-0" /> : <ChevronRight size={16} className="text-text-muted shrink-0" />}
-                      <div className="relative w-12 sm:w-14 aspect-[2/3] shrink-0 rounded-lg overflow-hidden bg-bg-input border border-border/60 shadow-sm">
+                      <div className="relative w-16 sm:w-20 aspect-[2/3] shrink-0 rounded-lg overflow-hidden bg-bg-input border border-border/60 shadow-sm">
                         <div className="absolute inset-0 flex items-center justify-center text-text-muted">
-                          <Tv size={18} strokeWidth={1.4} />
+                          <Tv size={24} strokeWidth={1.4} />
                         </div>
                         <LibraryPoster kind="series" dir={s.dir} poster={s.poster} title={s.title} />
                       </div>

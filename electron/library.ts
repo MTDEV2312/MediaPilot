@@ -89,61 +89,138 @@ interface JellyfinItem {
 }
 
 let jfIndexCache: { at: number; map: Map<string, JellyfinItem> } | null = null
+let jfIndexPromise: Promise<Map<string, JellyfinItem>> | null = null
 const JF_INDEX_TTL_MS = 10 * 60 * 1000
+
+const posterBufferCache = new Map<string, { buffer: Buffer; contentType: string }>()
+
+function cleanTitle(s: string): string {
+  return String(s || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\ufffd/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+}
+
+function extractTmdbId(s: string): string | null {
+  const m = String(s || '').match(/\[tmdbid-(\d+)\]/i)
+  return m ? m[1] : null
+}
 
 function jfKey(type: string, folderName: string): string {
   const kind = type === 'Series' ? 'series' : 'movie'
   return `${kind}:${folderName.toLowerCase()}`
 }
 
+function jfCleanKey(type: string, name: string): string {
+  const kind = type === 'Series' ? 'series' : 'movie'
+  return `${kind}:clean:${cleanTitle(name)}`
+}
+
+function jfTmdbKey(type: string, tmdbId: string): string {
+  const kind = type === 'Series' ? 'series' : 'movie'
+  return `${kind}:tmdb:${tmdbId}`
+}
+
+export function lookupJellyfinItem(map: Map<string, JellyfinItem>, kind: 'movie' | 'series', folderName: string): JellyfinItem | undefined {
+  const typeStr = kind === 'series' ? 'Series' : 'Movie'
+  const base = path.basename(folderName)
+
+  // 1. Direct match by exact folder basename
+  let item = map.get(jfKey(typeStr, base))
+  if (item) return item
+
+  // 2. TMDB ID match if present in folder name
+  const tmdb = extractTmdbId(base)
+  if (tmdb) {
+    item = map.get(jfTmdbKey(typeStr, tmdb))
+    if (item) return item
+  }
+
+  // 3. Clean title match (accents, punctuation & unicode replacement chars stripped)
+  const clean = cleanTitle(base)
+  if (clean) {
+    item = map.get(jfCleanKey(typeStr, base))
+    if (item) return item
+  }
+
+  return undefined
+}
+
 /** Índice de items de Jellyfin (id + tag de póster) por nombre de carpeta. */
 async function jellyfinIndex(): Promise<Map<string, JellyfinItem>> {
-  const settings = getSettings()
-  const url = (settings.jellyfin_url || '').trim().replace(/\/+$/, '')
-  const key = (settings.jellyfin_api_key || '').trim()
-  if (!url || !key) return new Map()
   if (jfIndexCache && Date.now() - jfIndexCache.at < JF_INDEX_TTL_MS) return jfIndexCache.map
-  const map = new Map<string, JellyfinItem>()
-  try {
-    const ctrl = new AbortController()
-    const timer = setTimeout(() => ctrl.abort(), 8_000)
-    const res = await fetch(
-      `${url}${jellyfinLibraryPath()}`,
-      { headers: jellyfinAuthHeaders(key), signal: ctrl.signal },
-    )
-    clearTimeout(timer)
-    if (res.ok) {
-      const body: any = await res.json().catch(() => null)
-      for (const item of body?.Items || []) {
-        if (!item?.Id) continue
-        const raw = String(item.Path || '').replace(/[/\\]+$/, '')
-        const parts = raw.split(/[/\\]/).filter(Boolean)
-        const base = parts[parts.length - 1] || ''
-        const parent = parts[parts.length - 2] || ''
-        // Movies: Jellyfin's Path points at the FILE → the folder is the parent.
-        // Series: Path points at the show folder (its basename).
-        const isSeries = String(item.Type || '') === 'Series'
-        const candidates = isSeries ? [base, parent] : [parent, base]
-        for (const name of candidates) {
-          if (name) map.set(jfKey(String(item.Type || ''), name), item as JellyfinItem)
+  if (jfIndexPromise) return jfIndexPromise
+
+  jfIndexPromise = (async () => {
+    const settings = getSettings()
+    const url = (settings.jellyfin_url || '').trim().replace(/\/+$/, '')
+    const key = (settings.jellyfin_api_key || '').trim()
+    if (!url || !key) return new Map()
+
+    const map = new Map<string, JellyfinItem>()
+    try {
+      const ctrl = new AbortController()
+      const timer = setTimeout(() => ctrl.abort(), 12_000)
+      const res = await fetch(
+        `${url}${jellyfinLibraryPath()}`,
+        { headers: jellyfinAuthHeaders(key), signal: ctrl.signal },
+      )
+      clearTimeout(timer)
+      if (res.ok) {
+        const body: any = await res.json().catch(() => null)
+        for (const item of body?.Items || []) {
+          if (!item?.Id) continue
+          const raw = String(item.Path || '').replace(/[/\\]+$/, '')
+          const parts = raw.split(/[/\\]/).filter(Boolean)
+          const base = parts[parts.length - 1] || ''
+          const parent = parts[parts.length - 2] || ''
+          const isSeries = String(item.Type || '') === 'Series'
+          const candidates = isSeries ? [base, parent] : [parent, base]
+          for (const name of candidates) {
+            if (name) {
+              map.set(jfKey(String(item.Type || ''), name), item as JellyfinItem)
+              const clean = cleanTitle(name)
+              if (clean) map.set(jfCleanKey(String(item.Type || ''), name), item as JellyfinItem)
+              const tmdb = extractTmdbId(name)
+              if (tmdb) map.set(jfTmdbKey(String(item.Type || ''), tmdb), item as JellyfinItem)
+            }
+          }
+          if (item.Name) {
+            const nm = String(item.Name).trim()
+            map.set(jfKey(String(item.Type || ''), nm), item as JellyfinItem)
+            const clean = cleanTitle(nm)
+            if (clean) map.set(jfCleanKey(String(item.Type || ''), nm), item as JellyfinItem)
+            const tmdb = extractTmdbId(nm)
+            if (tmdb) map.set(jfTmdbKey(String(item.Type || ''), tmdb), item as JellyfinItem)
+          }
         }
-        if (item.Name) {
-          map.set(jfKey(String(item.Type || ''), String(item.Name).trim()), item as JellyfinItem)
+        console.log(`[library] índice Jellyfin: ${map.size} items (pósters disponibles)`)
+        if (map.size > 0) {
+          jfIndexCache = { at: Date.now(), map }
         }
+      } else {
+        console.warn(`[library] Jellyfin index HTTP ${res.status} — sin pósters`)
       }
-      console.log(`[library] índice Jellyfin: ${map.size} items (pósters disponibles)`)
-    } else {
-      console.warn(`[library] Jellyfin index HTTP ${res.status} — sin pósters`)
+    } catch (e: any) {
+      console.warn(`[library] Jellyfin index failed: ${e.message} — sin pósters`)
+    } finally {
+      jfIndexPromise = null
     }
-  } catch (e: any) {
-    console.warn(`[library] Jellyfin index failed: ${e.message} — sin pósters`)
-  }
-  jfIndexCache = { at: Date.now(), map }
-  return map
+    return map
+  })()
+
+  return jfIndexPromise
 }
 
 /** Póster (bytes) de un item de la biblioteca, proxied para no exponer la key. */
 export async function fetchJellyfinPoster(folderName: string, kind: 'movie' | 'series'): Promise<{ buffer: Buffer; contentType: string } | null> {
+  const cacheKey = `${kind}:${path.basename(folderName).toLowerCase()}`
+  if (posterBufferCache.has(cacheKey)) {
+    return posterBufferCache.get(cacheKey)!
+  }
+
   const settings = getSettings()
   const baseDir = kind === 'series' ? settings.series_folder : settings.movies_folder
   const targetDir = fs.existsSync(folderName) ? folderName : (baseDir ? path.join(baseDir, path.basename(folderName)) : folderName)
@@ -155,7 +232,9 @@ export async function fetchJellyfinPoster(folderName: string, kind: 'movie' | 's
       const buffer = fs.readFileSync(localFile)
       const ext = path.extname(localFile).toLowerCase()
       const contentType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg'
-      return { buffer, contentType }
+      const result = { buffer, contentType }
+      posterBufferCache.set(cacheKey, result)
+      return result
     } catch { /* continuar a Jellyfin */ }
   }
 
@@ -164,7 +243,7 @@ export async function fetchJellyfinPoster(folderName: string, kind: 'movie' | 's
   const key = (settings.jellyfin_api_key || '').trim()
   if (!url || !key) return null
   const map = await jellyfinIndex()
-  const item = map.get(jfKey(kind === 'series' ? 'Series' : 'Movie', path.basename(folderName)))
+  const item = lookupJellyfinItem(map, kind, folderName)
   if (!item || !item.ImageTags?.Primary) return null
   try {
     const res = await fetch(`${url}${jellyfinPosterPath(item.Id, item.ImageTags.Primary)}`, {
@@ -172,7 +251,9 @@ export async function fetchJellyfinPoster(folderName: string, kind: 'movie' | 's
     })
     if (!res.ok) return null
     const buffer = Buffer.from(await res.arrayBuffer())
-    return { buffer, contentType: res.headers.get('content-type') || 'image/jpeg' }
+    const result = { buffer, contentType: res.headers.get('content-type') || 'image/jpeg' }
+    posterBufferCache.set(cacheKey, result)
+    return result
   } catch { return null }
 }
 
@@ -265,7 +346,7 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
       const { title, year } = parseTitleYear(entry.name)
       const wl = watchlistLookup(title, year)
       const hasLocalPoster = Boolean(findLocalPosterFile(dir))
-      const hasJfPoster = Boolean(postering.get(jfKey('Movie', entry.name))?.ImageTags?.Primary)
+      const hasJfPoster = Boolean(lookupJellyfinItem(postering, 'movie', entry.name)?.ImageTags?.Primary)
       const poster = (hasLocalPoster || hasJfPoster)
         ? posterUrlFor('movie', entry.name, true)
         : (wl.posterUrl || '')
@@ -317,7 +398,7 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
       const { title, year } = parseTitleYear(entry.name)
       const wl = watchlistLookup(title, year)
       const hasLocalPoster = Boolean(findLocalPosterFile(dir))
-      const hasJfPoster = Boolean(postering.get(jfKey('Series', entry.name))?.ImageTags?.Primary)
+      const hasJfPoster = Boolean(lookupJellyfinItem(postering, 'series', entry.name)?.ImageTags?.Primary)
       const poster = (hasLocalPoster || hasJfPoster)
         ? posterUrlFor('series', entry.name, true)
         : (wl.posterUrl || '')

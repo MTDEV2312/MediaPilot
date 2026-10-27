@@ -302,7 +302,11 @@ export const webAPI: ElectronAPI = {
 
   getLibrary: () => webFetch('/api/library'),
   deleteLibraryItem: (payload: any) => webFetch('/api/library/delete', 'POST', payload),
-  getLibraryPoster: (kind: string, folder: string) => Promise.resolve(`/api/library/poster?t=${kind}&f=${encodeURIComponent(folder)}`),
+  getLibraryPoster: (kind: string, folder: string) => {
+    const isWeb = typeof window !== 'undefined' && window.location.protocol.startsWith('http')
+    const prefix = isWeb ? '' : 'http://127.0.0.1:9650'
+    return Promise.resolve(`${prefix}/api/library/poster?t=${kind}&f=${encodeURIComponent(folder)}`)
+  },
 }
 
 // Browser mode: expose the shim as window.electronAPI so components that
