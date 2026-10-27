@@ -241,20 +241,64 @@ export async function fetchJellyfinPoster(folderName: string, kind: 'movie' | 's
   // 2. Jellyfin API
   const url = (settings.jellyfin_url || '').trim().replace(/\/+$/, '')
   const key = (settings.jellyfin_api_key || '').trim()
-  if (!url || !key) return null
-  const map = await jellyfinIndex()
-  const item = lookupJellyfinItem(map, kind, folderName)
-  if (!item || !item.ImageTags?.Primary) return null
-  try {
-    const res = await fetch(`${url}${jellyfinPosterPath(item.Id, item.ImageTags.Primary)}`, {
-      headers: jellyfinAuthHeaders(key),
-    })
-    if (!res.ok) return null
-    const buffer = Buffer.from(await res.arrayBuffer())
-    const result = { buffer, contentType: res.headers.get('content-type') || 'image/jpeg' }
-    posterBufferCache.set(cacheKey, result)
-    return result
-  } catch { return null }
+  if (url && key) {
+    const map = await jellyfinIndex()
+    const item = lookupJellyfinItem(map, kind, folderName)
+    if (item && item.ImageTags?.Primary) {
+      try {
+        const res = await fetch(`${url}${jellyfinPosterPath(item.Id, item.ImageTags.Primary)}`, {
+          headers: jellyfinAuthHeaders(key),
+        })
+        if (res.ok) {
+          const buffer = Buffer.from(await res.arrayBuffer())
+          const result = { buffer, contentType: res.headers.get('content-type') || 'image/jpeg' }
+          posterBufferCache.set(cacheKey, result)
+          return result
+        }
+      } catch { /* continuar a TMDB */ }
+    }
+  }
+
+  // 3. Fallback a TMDB API si está configurada
+  const tmdbKey = (settings.tmdb_api_key || '').trim()
+  if (tmdbKey) {
+    try {
+      const base = path.basename(folderName)
+      const tmdbId = extractTmdbId(base)
+      const mediaEndpoint = kind === 'series' ? 'tv' : 'movie'
+      let posterPath: string | null = null
+
+      if (tmdbId) {
+        const detailRes = await fetch(`https://api.themoviedb.org/3/${mediaEndpoint}/${tmdbId}?api_key=${encodeURIComponent(tmdbKey)}&language=es-MX`)
+        if (detailRes.ok) {
+          const detail: any = await detailRes.json().catch(() => null)
+          posterPath = detail?.poster_path || null
+        }
+      }
+
+      if (!posterPath) {
+        const { title, year } = parseTitleYear(base)
+        const yearParam = year ? (kind === 'series' ? `&first_air_date_year=${encodeURIComponent(year)}` : `&year=${encodeURIComponent(year)}`) : ''
+        const searchRes = await fetch(`https://api.themoviedb.org/3/search/${mediaEndpoint}?api_key=${encodeURIComponent(tmdbKey)}&query=${encodeURIComponent(title)}${yearParam}&language=es-MX`)
+        if (searchRes.ok) {
+          const searchData: any = await searchRes.json().catch(() => null)
+          posterPath = searchData?.results?.[0]?.poster_path || null
+        }
+      }
+
+      if (posterPath) {
+        const imgRes = await fetch(`https://image.tmdb.org/t/p/w500${posterPath}`)
+        if (imgRes.ok) {
+          const buffer = Buffer.from(await imgRes.arrayBuffer())
+          const result = { buffer, contentType: imgRes.headers.get('content-type') || 'image/jpeg' }
+          posterBufferCache.set(cacheKey, result)
+          return result
+        }
+      }
+    } catch { /* sin póster */ }
+  }
+
+  return null
 }
 
 export function posterUrlFor(kind: 'movie' | 'series', folderName: string, hasPoster: boolean): string {
@@ -296,9 +340,10 @@ function dirSize(dir: string): { bytes: number; files: number } {
 }
 
 function parseTitleYear(folderName: string): { title: string; year: string } {
-  const m = folderName.match(YEAR_RE)
-  if (m) return { title: folderName.replace(YEAR_RE, '').trim(), year: m[1] }
-  return { title: folderName, year: '' }
+  const withoutTmdb = folderName.replace(/\s*\[tmdbid-\d+\]\s*$/i, '').trim()
+  const m = withoutTmdb.match(YEAR_RE)
+  if (m) return { title: withoutTmdb.replace(YEAR_RE, '').trim(), year: m[1] }
+  return { title: withoutTmdb, year: '' }
 }
 
 function parseEpisode(fileName: string): { season: number | null; episode: number | null } {
@@ -347,9 +392,10 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
       const wl = watchlistLookup(title, year)
       const hasLocalPoster = Boolean(findLocalPosterFile(dir))
       const hasJfPoster = Boolean(lookupJellyfinItem(postering, 'movie', entry.name)?.ImageTags?.Primary)
+      const hasTmdb = Boolean((settings.tmdb_api_key || '').trim())
       const poster = (hasLocalPoster || hasJfPoster)
         ? posterUrlFor('movie', entry.name, true)
-        : (wl.posterUrl || '')
+        : (wl.posterUrl || (hasTmdb ? posterUrlFor('movie', entry.name, true) : ''))
       movies.push({ title, year, dir, sizeBytes: bytes, videos, poster, inWatchlist: wl.inWatchlist, watchlistId: wl.watchlistId })
     }
     movies.sort((a, b) => a.title.localeCompare(b.title, 'es'))
@@ -399,9 +445,10 @@ export async function scanLibrary(): Promise<LibrarySnapshot> {
       const wl = watchlistLookup(title, year)
       const hasLocalPoster = Boolean(findLocalPosterFile(dir))
       const hasJfPoster = Boolean(lookupJellyfinItem(postering, 'series', entry.name)?.ImageTags?.Primary)
+      const hasTmdb = Boolean((settings.tmdb_api_key || '').trim())
       const poster = (hasLocalPoster || hasJfPoster)
         ? posterUrlFor('series', entry.name, true)
-        : (wl.posterUrl || '')
+        : (wl.posterUrl || (hasTmdb ? posterUrlFor('series', entry.name, true) : ''))
       series.push({ title, year, dir, sizeBytes: bytes, seasons, looseVideos, poster, inWatchlist: wl.inWatchlist, watchlistId: wl.watchlistId })
     }
     series.sort((a, b) => a.title.localeCompare(b.title, 'es'))

@@ -48,18 +48,21 @@ function LibraryPoster({
           if (cancelled) return
           if (dataUrl && (dataUrl.startsWith('data:') || dataUrl.startsWith('http://') || dataUrl.startsWith('https://'))) {
             setSrc(dataUrl)
-          } else if (poster && poster.startsWith('http')) {
+          } else if (poster && (poster.startsWith('http://') || poster.startsWith('https://'))) {
             setSrc(poster)
-          } else if (poster && !isWebMode()) {
-            const rel = poster.startsWith('/') ? poster : `/${poster}`
-            setSrc(`http://127.0.0.1:9650${rel}`)
+          } else {
+            setFailed(true)
           }
         })
         .catch(() => {
           if (cancelled) return
-          if (poster && poster.startsWith('http')) setSrc(poster)
+          if (poster && (poster.startsWith('http://') || poster.startsWith('https://'))) {
+            setSrc(poster)
+          } else {
+            setFailed(true)
+          }
         })
-    } else if (poster && poster.startsWith('http')) {
+    } else if (poster && (poster.startsWith('http://') || poster.startsWith('https://'))) {
       setSrc(poster)
     }
 
