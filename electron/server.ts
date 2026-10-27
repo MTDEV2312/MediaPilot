@@ -24,6 +24,7 @@ import { scanLibrary, deleteLibraryItem, fetchJellyfinPoster } from './library'
 import { TorboxAPI } from './torbox'
 import { RealDebridAPI, RD_OPENSOURCE_CLIENT_ID } from './realdebrid'
 import { eventBus } from './event-bus'
+import { rutaDeRecurso, resolveRunner } from './resource-paths'
 
 const PORT = parseInt(process.env.TDP_PORT || '9650', 10)
 const HOST = process.env.TDP_HOST || '0.0.0.0'
@@ -55,11 +56,11 @@ console.debug = (...a: any[]) => { _origDebug(...a); sendLog('debug', ...a) }
 
 // ── Python spawn helpers (Linux: python3 + .py scripts) ──
 function scriptPath(scriptName: string): string {
-  return path.join(__dirname, '..', 'electron', scriptName)
+  return rutaDeRecurso(scriptName)
 }
 function spawnPython(scriptName: string, args: string[], env: Record<string, string> = {}) {
-  const py = process.env.TDP_PYTHON || (process.platform === 'win32' ? 'python' : 'python3')
-  return spawn(py, [scriptPath(scriptName), ...args], {
+  const runner = resolveRunner(scriptName, args)
+  return spawn(runner.cmd, runner.args, {
     env: { ...process.env as any, ...env },
     windowsHide: true,
   })

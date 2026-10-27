@@ -6,6 +6,7 @@ import path from 'path'
 import fs from 'fs'
 import os from 'os'
 import type { Settings } from './db'
+import { rutaDeRecurso, resolveRunner } from './resource-paths'
 
 const DEFAULT_JACKETT_INDEXERS = [
   '1337x', 'eztv', 'thepiratebay', 'yts', 'torrentgalaxyclone',
@@ -21,20 +22,7 @@ export function pythonPath(): string {
 }
 
 export function scriptPath(scriptName: string): string {
-  // Se busca el script donde esté: junto al bundle (dist-electron/../electron) o
-  // en el directorio del proyecto, para que sirva tanto en el servidor web como
-  // ejecutando desde el código.
-  const candidatos = [
-    path.join(__dirname, '..', 'electron', scriptName),
-    path.join(process.cwd(), 'electron', scriptName),
-    path.join(__dirname, scriptName),
-  ]
-  for (const c of candidatos) {
-    try {
-      if (fs.existsSync(c)) return c
-    } catch { /* siguiente */ }
-  }
-  return candidatos[0]
+  return rutaDeRecurso(scriptName)
 }
 
 /**
@@ -81,7 +69,8 @@ export function runPythonJson(
   timeoutMs = 60_000,
 ): Promise<any> {
   return new Promise((resolve) => {
-    const proc = spawn(pythonPath(), [scriptPath(scriptName), ...args], {
+    const runner = resolveRunner(scriptName, args)
+    const proc = spawn(runner.cmd, runner.args, {
       env: { ...process.env as any, ...env },
       windowsHide: true,
     })
@@ -127,7 +116,8 @@ export function runPythonLines(
   timeoutMs = 75_000,
 ): Promise<any[]> {
   return new Promise((resolve) => {
-    const proc = spawn(pythonPath(), [scriptPath(scriptName), ...args], {
+    const runner = resolveRunner(scriptName, args)
+    const proc = spawn(runner.cmd, runner.args, {
       env: { ...process.env as any, ...env },
       windowsHide: true,
     })

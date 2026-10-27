@@ -28,6 +28,10 @@ extraResources:
     to: tmdb-provider.exe
   - from: electron/latino-providers.exe
     to: latino-providers.exe
+  - from: electron/meta-search.py
+    to: meta-search.py
+  - from: electron/subtitles.py
+    to: subtitles.py
 
 win:
   target:

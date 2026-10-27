@@ -9,7 +9,7 @@ import { TorboxAPI } from './torbox'
 import { RealDebridAPI, RD_OPENSOURCE_CLIENT_ID } from './realdebrid'
 import { startWorker, cancelLocalDownload } from './worker'
 import { initAutoUpdater, checkForUpdates, checkForUpdatesManual, downloadUpdate, installUpdate, dismissUpdate } from './updater'
-import { rutaDeRecurso } from './resource-paths'
+import { rutaDeRecurso, resolveRunner } from './resource-paths'
 import { scanLibrary, deleteLibraryItem, fetchJellyfinPoster } from './library'
 import { startWebServer, stopWebServer } from './server'
 
@@ -591,18 +591,8 @@ function getRunnerPath(scriptName: string): string {
 }
 
 function spawnPython(scriptName: string, args: string[]): { cmd: string; allArgs: string[] } {
-  const scriptPath = getRunnerPath(scriptName)
-  if (scriptPath.endsWith('.py')) {
-    // In production, prefer the bundled .exe over system Python
-    if (!process.env.VITE_DEV_SERVER_URL) {
-      const exePath = scriptPath.replace(/\.py$/, '.exe')
-      if (fs.existsSync(exePath)) {
-        return { cmd: exePath, allArgs: args }
-      }
-    }
-    return { cmd: 'python', allArgs: [scriptPath, ...args] }
-  }
-  return { cmd: scriptPath, allArgs: args }
+  const runner = resolveRunner(scriptName, args)
+  return { cmd: runner.cmd, allArgs: runner.args }
 }
 
 ipcMain.handle('tmdb-lists', async () => {
